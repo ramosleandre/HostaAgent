@@ -6,7 +6,7 @@ or:      python examples/code_agent.py
 """
 import subprocess
 
-from hostaagent import Agent, CliDriver, LocalFS, tool
+from hostaagent import Agent, LocalFS, tool
 
 
 @tool
@@ -31,4 +31,5 @@ def make_agent() -> Agent:
 
 
 if __name__ == "__main__":
-    CliDriver(make_agent).run()
+    from hostaagent.driver.cli import launch
+    launch(make_agent())
