@@ -23,7 +23,11 @@ class Turn:
 
 @dataclass
 class AgentResult:
-    """The full result of `Agent.run`: final answer + the whole trace."""
+    """The full result of `Agent.run`: final answer + the whole trace.
+
+    `answer` is an instance of the agent's `output_type` iff `stop_reason == "done"`
+    and a non-empty answer was produced; otherwise it is the raw `str`.
+    """
     answer: Any
     turns: list[Turn] = field(default_factory=list)
     stop_reason: str = "done"  # "done" | "max_steps"
