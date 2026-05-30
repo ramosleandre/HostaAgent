@@ -106,17 +106,7 @@ Configuration lives in `~/.hostaagent/config.toml` (a project can override it wi
 A run renders as step cards: condensed tools (no long absolute paths), the agent's
 reasoning, then the answer, then a status line.
 
-```
-╭─ read · grep ───────────────────────────────╮
-│ ▸ I'll look at the auth module first.        │
-│ ⚙ read   …/src/auth.py                       │
-│   ↳ 142 lines of python …                    │
-│ ⚙ grep   validate_token  src                 │
-│   ↳ src/auth.py:42  src/middleware.py:18     │
-╰──────────────────────────────────────────────╯
-The token expiry check was off by one. Patched.
-✓ done · 4 tools · 3 turns
-```
+![example_hosta](hosta_example.png)
 
 In a session, type `/` to autocomplete commands:
 
