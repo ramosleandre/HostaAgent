@@ -109,6 +109,116 @@ def test_import_hostaagent_does_not_load_cli_deps():
     assert "ok" in r.stdout, r.stderr
 
 
+# ---- sessions (C) + config registry (D) -----------------------------------
+
+def _isolate_config(monkeypatch, tmp_path):
+    from hostaagent import config as cfgmod
+    monkeypatch.setattr(cfgmod, "USER_CONFIG", tmp_path / "config.toml")
+    monkeypatch.setattr(cfgmod, "PROJECT_CONFIG", tmp_path / "absent.toml")
+
+
+def test_repl_autosaves_each_turn(tmp_path, monkeypatch):
+    # A REPL turn (one piped task, then EOF) must leave a session file on disk.
+    from hostaagent import session as sess
+    from hostaagent.driver.cli.repl import run_repl
+    monkeypatch.setattr(sess, "SESSIONS_DIR", tmp_path / "sessions")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+    inputs = iter(["bonjour"])  # one task, then EOF ends the REPL
+
+    def fake_input(_prompt=""):
+        try:
+            return next(inputs)
+        except StopIteration:
+            raise EOFError from None
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    model = MockModel([ModelResponse(text="salut", tool_calls=[], raw_calls=[],
+                                     finish_reason="stop")])
+    agent = Agent(env=LocalFS(str(tmp_path)), model=model)
+    run_repl(_console(), agent, {"model": {"name": "m"}})
+    saved = list(sess.list_sessions())
+    assert len(saved) == 1 and saved[0].title == "bonjour"
+
+
+def test_handle_continue_no_sessions(tmp_path, monkeypatch, capsys):
+    from hostaagent import session as sess
+    from hostaagent.driver.cli import app
+    monkeypatch.setattr(sess, "SESSIONS_DIR", tmp_path / "sessions")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    app._handle_continue(["continue"])  # must not crash; just informs
+    # (the message goes through the module console; no exception is the assertion)
+
+
+def test_handle_continue_by_id_resumes_repl(tmp_path, monkeypatch):
+    from hostaagent import session as sess
+    from hostaagent.driver.cli import app
+    monkeypatch.setattr(sess, "SESSIONS_DIR", tmp_path / "sessions")
+    _isolate_config(monkeypatch, tmp_path)
+    msgs = [{"role": "user", "content": "earlier"}, {"role": "assistant", "content": "noted"}]
+    sess.save_session("sid1", msgs)
+
+    captured = {}
+    monkeypatch.setattr(app, "run_repl",
+                        lambda console, agent, cfg, resume_history=None: captured.update(
+                            history=resume_history))
+    monkeypatch.setattr(app, "load_config", lambda: {"model": {"name": "m"}})
+    monkeypatch.setattr(app, "set_default_model", lambda cfg: None)
+    monkeypatch.setattr(app, "_default_agent", lambda cfg: object())
+    app._handle_continue(["continue", "sid1"])
+    assert captured["history"] == msgs
+
+
+def test_handle_continue_unknown_id_exits(tmp_path, monkeypatch):
+    import pytest
+
+    from hostaagent import session as sess
+    from hostaagent.driver.cli import app
+    monkeypatch.setattr(sess, "SESSIONS_DIR", tmp_path / "sessions")
+    with pytest.raises(SystemExit):
+        app._handle_continue(["continue", "ghost"])
+
+
+def test_config_lists_when_config_exists(tmp_path, monkeypatch):
+    from hostaagent.driver.cli import app
+    _isolate_config(monkeypatch, tmp_path)
+    from hostaagent import config as cfgmod
+    cfgmod.set_value("model.name", "gpt-4o")
+    cfgmod.add_model_config("local", {"name": "qwen2.5", "base_url": "http://x", "api_key": ""})
+
+    called = {"wizard": False}
+    monkeypatch.setattr(app, "run_config_wizard", lambda: called.__setitem__("wizard", True))
+    app._handle_config(["config"])  # bare config, config exists → list, NOT wizard
+    assert called["wizard"] is False
+
+
+def test_config_wizard_on_first_run(tmp_path, monkeypatch):
+    from hostaagent.driver.cli import app
+    _isolate_config(monkeypatch, tmp_path)  # no config file exists
+    called = {"wizard": False}
+    monkeypatch.setattr(app, "run_config_wizard", lambda: called.__setitem__("wizard", True))
+    app._handle_config(["config"])  # bare config, no config → wizard
+    assert called["wizard"] is True
+
+
+def test_config_add_use_remove_flow(tmp_path, monkeypatch):
+    from hostaagent import config as cfgmod
+    from hostaagent.driver.cli import app
+    _isolate_config(monkeypatch, tmp_path)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    answers = iter(["qwen2.5", "http://localhost:11434/v1", ""])  # name, url, key
+    monkeypatch.setattr("builtins.input", lambda *_: next(answers))
+
+    app._handle_config(["config", "add", "local"])
+    assert "local" in cfgmod.list_model_configs()
+
+    app._handle_config(["config", "use", "local"])      # makes it active
+    assert cfgmod.load_config()["model"]["name"] == "qwen2.5"
+
+    app._handle_config(["config", "remove", "local"])
+    assert "local" not in cfgmod.list_model_configs()
+
+
 def test_default_agent_honors_configured_path(tmp_path):
     from hostaagent.driver.cli import app
 

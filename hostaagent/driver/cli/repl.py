@@ -22,6 +22,7 @@ from rich.panel import Panel
 from ...config import build_model
 from ...core import Agent
 from ...events import OnEvent
+from ...session import new_session_id, save_session
 from .render import task_panel
 from .stream import StreamRenderer
 from .theme import PROMPT_STYLE
@@ -30,7 +31,8 @@ SLASH_COMMANDS: dict[str, str] = {
     "/model": "switch model for the session (/model <name>)",
     "/tools": "list available tools",
     "/think": "toggle showing the agent's reasoning",
-    "/clear": "clear the screen and forget the conversation",
+    "/save": "save this session to disk now (also auto-saved each turn)",
+    "/clear": "clear the screen and start a fresh session",
     "/help": "show this help",
     "/exit": "quit (or Ctrl-D)",
 }
@@ -98,7 +100,8 @@ def run_one(console: Console, agent: Agent, task: str, show_thinking: bool = Tru
     return result
 
 
-def run_repl(console: Console, agent: Agent, cfg: dict[str, Any], debug: bool = False) -> None:
+def run_repl(console: Console, agent: Agent, cfg: dict[str, Any], debug: bool = False,
+             resume_history: list[dict[str, Any]] | None = None) -> None:
     console.print(Panel("[accent]Interactive session[/accent] — type a task, or [tool]/help[/tool]",
                         title="[primary]HostaAgent[/primary]", border_style="primary",
                         expand=False))
@@ -112,7 +115,10 @@ def run_repl(console: Console, agent: Agent, cfg: dict[str, Any], debug: bool = 
         )
     stats = _Stats()
     show_thinking = True
-    history: list[dict[str, Any]] = []  # the running conversation (multi-turn memory)
+    # The running conversation (multi-turn memory). A resumed session continues an
+    # older one; either way this REPL writes under a fresh id (sessions are append-only).
+    history: list[dict[str, Any]] = list(resume_history) if resume_history else []
+    session_id = new_session_id()
 
     while True:
         try:
@@ -142,8 +148,15 @@ def run_repl(console: Console, agent: Agent, cfg: dict[str, Any], debug: bool = 
                     console.print(f"[ok]model → {arg.strip()}[/ok]")
                 else:
                     console.print(f"[muted]current model: {cfg['model']['name']}[/muted]")
+            elif cmd == "save":
+                if history:
+                    save_session(session_id, history)
+                    console.print(f"[ok]✓ saved[/ok] [muted]{session_id}[/muted]")
+                else:
+                    console.print("[muted]nothing to save yet[/muted]")
             elif cmd == "clear":
-                history = []  # forget the conversation
+                history = []  # forget the conversation; a new session from here on
+                session_id = new_session_id()
                 console.clear()
             else:
                 console.print(f"[warn]unknown command: /{cmd}[/warn] [muted](try /help)[/muted]")
@@ -152,6 +165,7 @@ def run_repl(console: Console, agent: Agent, cfg: dict[str, Any], debug: bool = 
         result = run_one(console, agent, line, show_thinking, history=history, debug=debug)
         if result is not None:
             history = result.messages  # carry the conversation into the next turn
+            save_session(session_id, history)  # persist after every turn
             stats.tasks += 1
             stats.tools += len(result.tools_used)
             stats.turns += len(result.turns)

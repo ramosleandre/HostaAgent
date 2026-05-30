@@ -18,15 +18,20 @@ from rich.markup import escape
 
 from ...config import (
     add_agent,
+    add_model_config,
     list_agents,
+    list_model_configs,
     load_config,
     remove_agent,
+    remove_model_config,
     resolve_agent,
     set_default_model,
     set_value,
+    use_model_config,
 )
 from ...core import Agent
 from ...environment import LocalFS
+from ...session import list_sessions, load_session
 from .repl import run_one, run_repl
 from .theme import VIOLET
 from .wizard import run_config_wizard
@@ -103,6 +108,7 @@ def launch(agent: Agent | Callable[[], Agent], task: str | None = None) -> None:
 
 def _handle_config(raw: list[str]) -> None:
     sub = raw[1] if len(raw) > 1 else ""
+    name = raw[2] if len(raw) > 2 else ""
     if sub == "show":
         cfg = load_config()
         console.print(cfg or "[warn]no config yet — run [tool]hosta config[/tool][/warn]")
@@ -123,8 +129,93 @@ def _handle_config(raw: list[str]) -> None:
             console.print(f"[err]{escape(str(e))}[/err]")
             sys.exit(1)
         console.print(f"[ok]✓ set {escape(key)} = {escape(value)}[/ok]")
-    else:
+    elif sub == "add":
+        if not name:
+            console.print("[err]usage: hosta config add <name>[/err]")
+            sys.exit(1)
+        _config_add(name)
+    elif sub in ("use", "default"):  # both make a named config the active default
+        if not name:
+            console.print(f"[err]usage: hosta config {sub} <name>[/err]")
+            sys.exit(1)
+        try:
+            use_model_config(name)
+        except KeyError:
+            console.print(f"[err]no model config named:[/err] {escape(name)} "
+                          "[muted](see `hosta config`)[/muted]")
+            sys.exit(1)
+        console.print(f"[ok]✓ active model →[/ok] [tool]{escape(name)}[/tool]")
+    elif sub == "remove":
+        if not name:
+            console.print("[err]usage: hosta config remove <name>[/err]")
+            sys.exit(1)
+        if name not in list_model_configs():
+            console.print(f"[warn]no model config named[/warn] [tool]{escape(name)}[/tool]")
+            return
+        remove_model_config(name)
+        console.print(f"[ok]✓ removed model config[/ok] [tool]{escape(name)}[/tool]")
+    elif sub == "wizard":
         run_config_wizard()
+    elif load_config() is None:  # bare `hosta config`, first run → set up
+        run_config_wizard()
+    else:                        # bare `hosta config` with a config → list
+        _print_model_configs(load_config() or {})
+
+
+def _config_add(name: str) -> None:
+    """Prompt for a model connection and register it under `name` (`hosta config add`)."""
+    from .wizard import PRESETS
+    if not sys.stdin.isatty():
+        model_name = input("Model name [gpt-4o]: ").strip() or "gpt-4o"
+        base_url = (input("Base URL [https://api.openai.com/v1]: ").strip()
+                    or "https://api.openai.com/v1")
+        api_key = input("API key (blank for local): ").strip()
+    else:
+        import questionary
+
+        from .theme import WIZARD_STYLE
+        provider = questionary.select("Provider", choices=list(PRESETS), default="OpenAI",
+                                      style=WIZARD_STYLE, qmark="✦").ask()
+        if provider is None:
+            console.print("[muted]cancelled[/muted]")
+            return
+        preset_url, preset_model = PRESETS[provider]
+        base_url = questionary.text("Base URL", default=preset_url or "http://localhost:11434/v1",
+                                    style=WIZARD_STYLE, qmark="✦").ask()
+        model_name = questionary.text("Model name", default=preset_model or "gpt-4o",
+                                      style=WIZARD_STYLE, qmark="✦").ask()
+        api_key = questionary.password("API key (blank for local)", style=WIZARD_STYLE,
+                                       qmark="✦").ask()
+        if base_url is None or model_name is None or api_key is None:
+            console.print("[muted]cancelled[/muted]")
+            return
+    try:
+        add_model_config(name, {"name": model_name, "base_url": base_url, "api_key": api_key or ""})
+    except ValueError as e:
+        console.print(f"[err]{escape(str(e))}[/err]")
+        sys.exit(1)
+    console.print(f"[ok]✓ added model config[/ok] [tool]{escape(name)}[/tool]")
+    console.print(f"[muted]activate it:[/muted] [tool]hosta config use {escape(name)}[/tool]")
+
+
+def _print_model_configs(cfg: dict[str, Any]) -> None:
+    """List named model configs + the active one (`hosta config`)."""
+    active = cfg.get("model", {})
+    console.print(f"[primary]active model[/primary] [tool]{escape(active.get('name', '(none)'))}"
+                  f"[/tool] [muted]{escape(active.get('base_url', ''))}[/muted]")
+    models = cfg.get("models", {})
+    if not models:
+        console.print("[muted]no named configs — add one:[/muted] "
+                      "[tool]hosta config add <name>[/tool]")
+        return
+    console.print("[primary]named model configs[/primary]")
+    for cname, mc in sorted(models.items()):
+        is_active = mc.get("name") == active.get("name") \
+            and mc.get("base_url") == active.get("base_url")
+        mark = "  [ok]✓ active[/ok]" if is_active else ""
+        console.print(f"  [tool]{escape(cname)}[/tool]{mark}\n"
+                      f"    [muted]{escape(mc.get('name', ''))}  "
+                      f"{escape(mc.get('base_url', ''))}[/muted]")
 
 
 def _handle_agents() -> None:
@@ -190,12 +281,52 @@ def _handle_use(raw: list[str]) -> None:
                   "[muted](plain `hosta` runs it)[/muted]")
 
 
+def _pick_session() -> str | None:
+    """Show recent sessions and return the chosen id (selector on TTY, list+input otherwise)."""
+    sessions = list_sessions()
+    if not sessions:
+        console.print("[muted]no saved sessions yet — start one with plain `hosta`[/muted]")
+        return None
+    if sys.stdin.isatty():
+        import questionary
+
+        from .theme import WIZARD_STYLE
+        choices = [questionary.Choice(
+            title=f"{s.title[:50]}  ·  {s.updated}  ·  {s.turns} turns", value=s.id)
+            for s in sessions]
+        picked = questionary.select("Resume session", choices=choices, style=WIZARD_STYLE,
+                                    qmark="✦").ask()
+        return str(picked) if picked else None
+    for s in sessions:  # non-TTY: print + read an id from stdin
+        console.print(f"  [tool]{escape(s.id)}[/tool]  [muted]{escape(s.updated)}[/muted]  "
+                      f"{escape(s.title)}")
+    return input("session id: ").strip() or None
+
+
+def _handle_continue(raw: list[str]) -> None:
+    """`hosta continue [id]` — resume a saved session in the REPL (selector if no id)."""
+    session_id = raw[1] if len(raw) > 1 else _pick_session()
+    if not session_id:
+        return  # cancelled / nothing to resume
+    try:
+        history = load_session(session_id)
+    except FileNotFoundError:
+        console.print(f"[err]no session:[/err] {escape(session_id)}")
+        sys.exit(1)
+    cfg = load_config() or run_config_wizard()
+    set_default_model(cfg)
+    console.print(f"[ok]✓ resuming[/ok] [muted]{escape(session_id)} "
+                  f"({len(history)} messages)[/muted]")
+    run_repl(console, _default_agent(cfg), cfg, resume_history=history)
+
+
 _VERBS: dict[str, Callable[[list[str]], None]] = {
     "config": _handle_config,
     "agents": lambda raw: _handle_agents(),
     "add": _handle_add,
     "remove": _handle_remove,
     "use": _handle_use,
+    "continue": _handle_continue,
 }
 
 

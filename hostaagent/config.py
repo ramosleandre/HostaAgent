@@ -65,12 +65,28 @@ def _toml_escape(value: str) -> str:
 
 
 def _dump_toml(cfg: dict[str, Any]) -> str:
-    lines = []
+    """Emit flat sections (`[model] key="v"`) and nested registries (`[models.name] …`).
+
+    A section whose values are scalars stays flat; a value that is itself a dict
+    becomes its own `[section.name]` sub-table. Flat-only configs dump byte-identically
+    to before (the `[agents]` name→str map stays flat; `[models]` name→dict nests).
+    """
+    lines: list[str] = []
     for section, values in cfg.items():
-        lines.append(f"[{section}]")
-        for key, val in values.items():
-            lines.append(f'{key} = "{_toml_escape(str(val))}"')
-        lines.append("")
+        if not isinstance(values, dict):
+            continue
+        flat = {k: v for k, v in values.items() if not isinstance(v, dict)}
+        nested = {k: v for k, v in values.items() if isinstance(v, dict)}
+        if flat:
+            lines.append(f"[{section}]")
+            for key, val in flat.items():
+                lines.append(f'{key} = "{_toml_escape(str(val))}"')
+            lines.append("")
+        for name, sub in nested.items():
+            lines.append(f"[{section}.{name}]")
+            for key, val in sub.items():
+                lines.append(f'{key} = "{_toml_escape(str(val))}"')
+            lines.append("")
     return "\n".join(lines).strip() + "\n"
 
 
@@ -130,6 +146,49 @@ def resolve_agent(ref: str) -> str | None:
         return registered
     p = Path(ref).expanduser()
     return str(p) if p.exists() else None
+
+
+# ---- model config registry (the [models] name -> {name, base_url, api_key} map) ----
+# Asymmetry vs agents: a model config is *data* (the full connection), so the registry
+# stores nested dicts. `use` copies a named config into the active [model] section, so
+# build_model / set_default_model keep reading [model] unchanged.
+
+def list_model_configs() -> dict[str, dict[str, str]]:
+    """Return the registered ``name -> {name, base_url, api_key}`` map."""
+    return dict((load_config() or {}).get("models", {}))
+
+
+def add_model_config(name: str, model: dict[str, str]) -> dict[str, Any]:
+    """Register a named model connection under ``name``."""
+    if not _AGENT_NAME.match(name):
+        raise ValueError(f"invalid config name {name!r} (use letters, digits, '_' or '-')")
+    cfg = load_config() or _merge(DEFAULTS, {})
+    cfg.setdefault("models", {})[name] = {
+        "name": str(model.get("name", "")),
+        "base_url": str(model.get("base_url", "")),
+        "api_key": str(model.get("api_key", "")),
+    }
+    save_config(cfg)
+    return cfg
+
+
+def remove_model_config(name: str) -> dict[str, Any]:
+    """Unregister a named model config."""
+    cfg = load_config() or _merge(DEFAULTS, {})
+    cfg.get("models", {}).pop(name, None)
+    save_config(cfg)
+    return cfg
+
+
+def use_model_config(name: str) -> dict[str, Any]:
+    """Copy the named model config into the active ``[model]`` section (the default) and save."""
+    cfg = load_config() or _merge(DEFAULTS, {})
+    entry = (cfg.get("models") or {}).get(name)
+    if entry is None:
+        raise KeyError(f"no model config named {name!r}")
+    cfg["model"] = dict(entry)
+    save_config(cfg)
+    return cfg
 
 
 def build_model(cfg: dict[str, Any]) -> Any:

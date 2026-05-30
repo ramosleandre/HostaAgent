@@ -39,6 +39,71 @@ def test_agent_registry_roundtrip(tmp_path, monkeypatch):
     assert cfgmod.list_agents() == {}
 
 
+def _isolate(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfgmod, "USER_CONFIG", tmp_path / "config.toml")
+    monkeypatch.setattr(cfgmod, "PROJECT_CONFIG", tmp_path / "absent.toml")
+
+
+def test_dump_toml_flat_sections_unchanged(tmp_path, monkeypatch):
+    # Regression guard: a flat-only config must still round-trip identically.
+    _isolate(tmp_path, monkeypatch)
+    cfgmod.set_value("model.name", "gpt-4o")
+    cfgmod.set_value("agent.default", "mine")
+    loaded = cfgmod.load_config()
+    assert loaded["model"]["name"] == "gpt-4o"
+    assert loaded["agent"]["default"] == "mine"
+    # [agents] is name->str (flat) — must stay flat, not nest
+    text = (tmp_path / "config.toml").read_text()
+    assert "[model]" in text and "[models." not in text
+
+
+def test_model_config_registry_roundtrip(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    cfgmod.add_model_config("local", {"name": "qwen2.5", "base_url": "http://localhost:11434/v1",
+                                      "api_key": ""})
+    cfgmod.add_model_config("oai", {"name": "gpt-4o", "base_url": "https://api.openai.com/v1",
+                                    "api_key": "sk-x"})
+    regs = cfgmod.list_model_configs()
+    assert set(regs) == {"local", "oai"}
+    assert regs["local"]["name"] == "qwen2.5" and regs["oai"]["api_key"] == "sk-x"
+    # the nested table really wrote as [models.local] / [models.oai]
+    text = (tmp_path / "config.toml").read_text()
+    assert "[models.local]" in text and "[models.oai]" in text
+
+    cfgmod.remove_model_config("local")
+    assert set(cfgmod.list_model_configs()) == {"oai"}  # the other survives
+
+
+def test_use_model_config_copies_to_active(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    cfgmod.add_model_config("local", {"name": "qwen2.5", "base_url": "http://localhost:11434/v1",
+                                      "api_key": ""})
+    cfgmod.use_model_config("local")
+    active = cfgmod.load_config()["model"]
+    assert active["name"] == "qwen2.5" and active["base_url"] == "http://localhost:11434/v1"
+
+
+def test_use_model_config_unknown_raises(tmp_path, monkeypatch):
+    import pytest
+    _isolate(tmp_path, monkeypatch)
+    with pytest.raises(KeyError):
+        cfgmod.use_model_config("nope")
+
+
+def test_add_model_config_rejects_bad_name(tmp_path, monkeypatch):
+    import pytest
+    _isolate(tmp_path, monkeypatch)
+    with pytest.raises(ValueError):
+        cfgmod.add_model_config("bad name", {"name": "x"})
+
+
+def test_api_key_with_special_chars_survives_nested_dump(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    weird = 'sk-"quote"\\back\ttab'
+    cfgmod.add_model_config("proxy", {"name": "m", "base_url": "http://x", "api_key": weird})
+    assert cfgmod.list_model_configs()["proxy"]["api_key"] == weird  # escaped + re-read intact
+
+
 def test_remove_agent_clears_default(tmp_path, monkeypatch):
     monkeypatch.setattr(cfgmod, "USER_CONFIG", tmp_path / "config.toml")
     monkeypatch.setattr(cfgmod, "PROJECT_CONFIG", tmp_path / "absent.toml")
