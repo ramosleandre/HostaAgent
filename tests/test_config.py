@@ -3,6 +3,25 @@ import hostaagent
 from hostaagent import config as cfgmod
 
 
+def test_set_value_persists_nested_key(tmp_path, monkeypatch):
+    user = tmp_path / "config.toml"
+    monkeypatch.setattr(cfgmod, "USER_CONFIG", user)
+    monkeypatch.setattr(cfgmod, "PROJECT_CONFIG", tmp_path / "absent.toml")
+    cfgmod.set_value("model.name", "gemini-2.0-flash")
+    cfgmod.set_value("agent.path", "./my_agent.py")
+    loaded = cfgmod.load_config()
+    assert loaded["model"]["name"] == "gemini-2.0-flash"
+    assert loaded["agent"]["path"] == "./my_agent.py"
+
+
+def test_set_value_rejects_bad_key(tmp_path, monkeypatch):
+    import pytest
+    monkeypatch.setattr(cfgmod, "USER_CONFIG", tmp_path / "c.toml")
+    monkeypatch.setattr(cfgmod, "PROJECT_CONFIG", tmp_path / "absent.toml")
+    with pytest.raises(ValueError):
+        cfgmod.set_value("modelname", "x")  # no section.key
+
+
 def test_canonical_import_surface():
     # The only import a user needs (from 01_VISION / 02_FINAL_SPEC).
     from hostaagent import Agent, CliDriver, LocalFS, tool  # noqa: F401

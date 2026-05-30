@@ -23,6 +23,7 @@ PROJECT_CONFIG = Path(".hostaagent.toml")
 
 DEFAULTS: dict[str, Any] = {
     "model": {"name": "gpt-4o", "base_url": "https://api.openai.com/v1", "api_key": ""},
+    "agent": {"path": ""},   # optional: a Python file `hosta` loads by default
     "ui": {"theme": "violet"},
 }
 
@@ -70,9 +71,24 @@ def _dump_toml(cfg: dict[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def save_config(cfg: dict[str, Any], path: Path = USER_CONFIG) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_dump_toml(cfg))
+def save_config(cfg: dict[str, Any], path: Path | None = None) -> None:
+    target = path or USER_CONFIG  # resolved at call time, not frozen at import
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_dump_toml(cfg))
+
+
+def set_value(dotted_key: str, value: str) -> dict[str, Any]:
+    """Set one ``section.key`` (e.g. ``model.name``) in the user config and save it.
+
+    Used by ``hosta config set <key> <value>``. Returns the updated config.
+    """
+    section, _, key = dotted_key.partition(".")
+    if not section or not key:
+        raise ValueError("expected section.key, e.g. model.name or agent.path")
+    cfg = load_config() or _merge(DEFAULTS, {})
+    cfg.setdefault(section, {})[key] = value
+    save_config(cfg)
+    return cfg
 
 
 def build_model(cfg: dict[str, Any]) -> Any:

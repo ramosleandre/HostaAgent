@@ -1,7 +1,13 @@
-"""HostaAgent — Claude Code in ~50 lines you can fork.
+"""HostaAgent — a minimalist skeleton for building agents.
 
 One import surface. Users never import OpenHosta directly; `tool` is re-exported.
 """
+import os as _os
+
+# Quiet OpenHosta's .env warnings by default (the user can override). Must run
+# before OpenHosta is imported below.
+_os.environ.setdefault("OPENHOSTA_SILENCE_ENV_WARNING", "1")
+
 from OpenHosta import tool  # re-export — users never import OpenHosta directly
 
 from .core import Agent

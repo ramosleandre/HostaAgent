@@ -63,7 +63,7 @@ Subclass `Agent`, give it a body, run it through a driver. Configuration is
 subclassing — no TOML, JSON, or DSL for the agent itself.
 
 ```python
-from hostaagent import Agent, LocalFS, CliDriver, tool
+from hostaagent import Agent, LocalFS, tool
 
 @tool
 def run_tests(suite: str = "all") -> str:
@@ -76,10 +76,32 @@ class CodeAgent(Agent):
     def register_tools(self):
         self.use(run_tests)
 
-CliDriver(lambda: CodeAgent(env=LocalFS("."))).run()
+if __name__ == "__main__":
+    from hostaagent.driver.cli import launch
+    launch(CodeAgent(env=LocalFS(".")))   # opens the violet CLI, using your `hosta config` model
 ```
 
-See [`examples/`](examples/) for a code agent, a custom (read-only) environment, and a daemon driver.
+For headless / programmatic use (no UI), run it through a driver instead:
+`CliDriver(lambda: CodeAgent(env=LocalFS("."))).run()`.
+
+Ready-to-run agents in [`examples/`](examples/):
+
+| Example | What it does |
+|---|---|
+| [`code_agent.py`](examples/code_agent.py) | reads, edits, and runs the test suite |
+| [`sql_agent.py`](examples/sql_agent.py) | schema-aware, read-only SQL analyst over a SQLite database |
+| [`git_reviewer.py`](examples/git_reviewer.py) | reviews your local `git diff` and suggests fixes |
+| [`research_agent.py`](examples/research_agent.py) | fetches URLs and synthesizes a cited answer (stdlib only) |
+| [`custom_env.py`](examples/custom_env.py) | a custom read-only `Environment` |
+| [`daemon_webhook.py`](examples/daemon_webhook.py) | a `DaemonDriver` that runs a task per event |
+
+Run any of them three ways:
+
+```bash
+python examples/sql_agent.py                          # its own CliDriver
+hosta --agent examples/sql_agent.py "top 5 by spend"  # load it into hosta
+hosta config set agent.path examples/sql_agent.py     # make it hosta's default, then just `hosta`
+```
 
 ### As the `hosta` command
 
@@ -90,16 +112,19 @@ quick setup (choose a provider: OpenAI, Gemini, a local Ollama/vLLM server, …)
 ```bash
 hosta                          # first run: setup, then an interactive session
 hosta "summarize README.md"    # one-shot task
-hosta config                   # re-run the setup
+hosta --agent my_agent.py "…"  # run your own agent (make_agent() / Agent subclass)
+hosta config                   # re-run the setup wizard
 hosta config show              # print the resolved config
+hosta config set model.name gpt-4o          # change one setting
+hosta config set agent.path ./my_agent.py   # set the default agent for plain `hosta`
 ```
 
-More agent types are coming soon. Today `hosta` ships the code agent; later you will
-be able to point it at your own agent (`hosta --agent my_agent.py`) or set a
-different default.
+Provider support today (anything OpenAI-compatible): **OpenAI**, **Gemini** (its
+OpenAI-compatible endpoint), and **local** servers (Ollama, vLLM, LM Studio).
+Native **Anthropic** is on the roadmap. The model must support tool calling.
 
-Configuration lives in `~/.hostaagent/config.toml` (a project can override it with
-`./.hostaagent.toml`) — the only config file in the project.
+Configuration is cached in `~/.hostaagent/config.toml` (a project can override it
+with `./.hostaagent.toml`) — the only config file in the project.
 
 ## Inside a `hosta` run
 

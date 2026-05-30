@@ -94,6 +94,54 @@ def test_import_hostaagent_does_not_load_cli_deps():
     assert "ok" in r.stdout, r.stderr
 
 
+def test_default_agent_honors_configured_path(tmp_path):
+    from hostaagent.driver.cli import app
+
+    agent_file = tmp_path / "my_agent.py"
+    agent_file.write_text(
+        "from hostaagent import Agent, LocalFS\n"
+        "def make_agent():\n"
+        "    a = Agent(env=LocalFS('.'))\n"
+        "    a.persona = 'custom default'\n"
+        "    return a\n"
+    )
+    cfg = {"model": {"name": "m", "base_url": "http://localhost:11434/v1", "api_key": "k"},
+           "agent": {"path": str(agent_file)}}
+    agent = app._default_agent(cfg)
+    assert agent.persona == "custom default"
+
+    # no agent.path -> the built-in code agent
+    cfg2 = {"model": cfg["model"], "agent": {"path": ""}}
+    assert app._default_agent(cfg2).persona == "You are a helpful autonomous agent."
+
+
+def test_configured_model_is_applied_to_agent():
+    # The CLI applies the configured model to any agent (the bug where examples
+    # silently fell back to OpenAI instead of the user's local/Gemini config).
+    from hostaagent.config import build_model
+    cfg = {"model": {"name": "qwen3.5:9b", "base_url": "http://localhost:11434/v1", "api_key": ""}}
+    agent = Agent(env=LocalFS("."))
+    agent.model = build_model(cfg)
+    assert agent.model.model_name == "qwen3.5:9b"
+    assert "11434" in agent.model.base_url
+
+
+def test_validate_agent_file(tmp_path):
+    from hostaagent.driver.cli import app
+    cfg = {"model": {"name": "m", "base_url": "http://localhost:11434/v1", "api_key": "k"}}
+
+    good = tmp_path / "ag.py"
+    good.write_text("from hostaagent import Agent, LocalFS\n"
+                    "def make_agent():\n    return Agent(env=LocalFS('.'))\n")
+    assert app._validate_agent_file(str(good), cfg) is None
+
+    bad = tmp_path / "notagent.py"   # valid python, but no agent in it
+    bad.write_text("x = 1\n")
+    assert app._validate_agent_file(str(bad), cfg) is not None
+
+    assert app._validate_agent_file(str(tmp_path / "missing.py"), cfg) is not None
+
+
 def test_slash_completer_suggests_commands():
     from prompt_toolkit.document import Document
 

@@ -1,7 +1,8 @@
 """The ``hosta`` command — argument parsing + dispatch.
 
 No business logic lives here, only wiring: resolve config (launching the wizard on
-first run), build the agent, then either run one task or open the REPL.
+first run), apply the configured model, then either run one task or open the REPL.
+`launch()` is the same machinery exposed for an example's ``__main__`` block.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ from typing import Any
 
 from rich.console import Console
 
-from ...config import build_model, load_config
+from ...config import build_model, load_config, set_value
 from ...core import Agent
 from ...environment import LocalFS
 from .repl import run_one, run_repl
@@ -24,7 +25,13 @@ console = Console(theme=VIOLET)
 
 
 def _default_agent(cfg: dict[str, Any]) -> Agent:
-    return Agent(env=LocalFS("."), model=build_model(cfg))
+    # Honor a configured default agent (`hosta config set agent.path ./my_agent.py`);
+    # otherwise the built-in code agent rooted at the current directory. The model is
+    # applied by the caller, so we don't build it here.
+    path = (cfg.get("agent") or {}).get("path", "")
+    if path and Path(path).expanduser().exists():
+        return _load_agent(Path(path).expanduser(), cfg)
+    return Agent(env=LocalFS("."))
 
 
 def _load_agent(path: Path, cfg: dict[str, Any]) -> Agent:
@@ -42,24 +49,76 @@ def _load_agent(path: Path, cfg: dict[str, Any]) -> Agent:
                 return built
     for value in ns.values():
         if isinstance(value, type) and issubclass(value, Agent) and value is not Agent:
-            return value(env=LocalFS("."), model=build_model(cfg))
+            return value(env=LocalFS("."))
     raise SystemExit(f"No Agent, make_agent(), or build() found in {path}")
+
+
+def _validate_agent_file(path_str: str, cfg: dict[str, Any]) -> str | None:
+    """Return a human-readable problem if `path_str` isn't a loadable agent, else None."""
+    p = Path(path_str).expanduser()
+    if not p.exists():
+        return f"no such file: {path_str}"
+    try:
+        _load_agent(p, cfg)
+    except SystemExit as e:
+        return str(e)
+    except Exception as e:
+        return f"could not load agent from {path_str}: {type(e).__name__}: {e}"
+    return None
+
+
+def launch(agent: Agent, task: str | None = None) -> None:
+    """Run an agent in the violet `hosta` UI — for an example's ``__main__`` block.
+
+    Resolves config (wizard on first run), applies the configured model, then runs a
+    one-shot task (from ``task`` or argv) or the interactive REPL.
+    """
+    cfg = load_config() or run_config_wizard()
+    agent.model = build_model(cfg)
+    if task is None and len(sys.argv) > 1:
+        task = " ".join(sys.argv[1:])
+    if task:
+        if run_one(console, agent, task) is None:
+            sys.exit(1)
+    else:
+        run_repl(console, agent, cfg)
+
+
+def _handle_config(raw: list[str]) -> None:
+    sub = raw[1] if len(raw) > 1 else ""
+    if sub == "show":
+        cfg = load_config()
+        console.print(cfg or "[warn]no config yet — run [tool]hosta config[/tool][/warn]")
+    elif sub == "set":
+        if len(raw) < 4:
+            console.print("[err]usage: hosta config set <section.key> <value>[/err] "
+                          "[muted](e.g. model.name gpt-4o)[/muted]")
+            sys.exit(1)
+        key, value = raw[2], raw[3]
+        if key == "agent.path" and value:
+            problem = _validate_agent_file(value, load_config() or {})
+            if problem:
+                console.print(f"[err]not a usable agent file:[/err] {problem}")
+                sys.exit(1)
+        try:
+            set_value(key, value)
+        except ValueError as e:
+            console.print(f"[err]{e}[/err]")
+            sys.exit(1)
+        console.print(f"[ok]✓ set {key} = {value}[/ok]")
+    else:
+        run_config_wizard()
 
 
 def main(argv: list[str] | None = None) -> None:
     raw = list(sys.argv[1:] if argv is None else argv)
 
-    # `hosta config` / `hosta config show` — handled before argparse.
-    if raw and raw[0] == "config":
-        if len(raw) > 1 and raw[1] == "show":
-            cfg = load_config()
-            console.print(cfg or "[warn]no config yet — run [tool]hosta config[/tool][/warn]")
-        else:
-            run_config_wizard()
+    if raw and raw[0] == "config":  # config / config show / config set <key> <value>
+        _handle_config(raw)
         return
 
     parser = argparse.ArgumentParser(
-        prog="hosta", description="Claude Code in 50 lines you can fork.")
+        prog="hosta", description="A framework to build agents the simplest way possible.")
     parser.add_argument("task", nargs="?", help="task to run (omit for an interactive session)")
     parser.add_argument("-a", "--agent", type=Path, help="load a custom agent from a Python file")
     parser.add_argument("-m", "--model", help="override the model name")
@@ -74,6 +133,7 @@ def main(argv: list[str] | None = None) -> None:
     except SystemExit as e:
         console.print(f"[err]{e}[/err]")
         sys.exit(1)
+    agent.model = build_model(cfg)  # apply the configured model to whatever we loaded
 
     if args.task:
         if run_one(console, agent, args.task) is None:
