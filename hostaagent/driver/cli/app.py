@@ -9,12 +9,13 @@ from __future__ import annotations
 import argparse
 import runpy
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
 
-from ...config import build_model, load_config, set_value
+from ...config import load_config, set_default_model, set_value
 from ...core import Agent
 from ...environment import LocalFS
 from .repl import run_one, run_repl
@@ -67,21 +68,23 @@ def _validate_agent_file(path_str: str, cfg: dict[str, Any]) -> str | None:
     return None
 
 
-def launch(agent: Agent, task: str | None = None) -> None:
+def launch(agent: Agent | Callable[[], Agent], task: str | None = None) -> None:
     """Run an agent in the violet `hosta` UI — for an example's ``__main__`` block.
 
-    Resolves config (wizard on first run), applies the configured model, then runs a
-    one-shot task (from ``task`` or argv) or the interactive REPL.
+    Accepts an `Agent` or a `make_agent` factory. Resolves config (wizard on first
+    run), wires it into the default model, then runs a one-shot task (from `task` or
+    argv) or the interactive REPL.
     """
     cfg = load_config() or run_config_wizard()
-    agent.model = build_model(cfg)
+    set_default_model(cfg)  # any Agent built without an explicit model now uses this
+    resolved: Agent = agent() if callable(agent) and not isinstance(agent, Agent) else agent
     if task is None and len(sys.argv) > 1:
         task = " ".join(sys.argv[1:])
     if task:
-        if run_one(console, agent, task) is None:
+        if run_one(console, resolved, task) is None:
             sys.exit(1)
     else:
-        run_repl(console, agent, cfg)
+        run_repl(console, resolved, cfg)
 
 
 def _handle_config(raw: list[str]) -> None:
@@ -127,13 +130,13 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_config() or run_config_wizard()  # first run launches the wizard
     if args.model:
         cfg["model"]["name"] = args.model
+    set_default_model(cfg)  # wire config into the default model before building agents
 
     try:
         agent = _load_agent(args.agent, cfg) if args.agent else _default_agent(cfg)
     except SystemExit as e:
         console.print(f"[err]{e}[/err]")
         sys.exit(1)
-    agent.model = build_model(cfg)  # apply the configured model to whatever we loaded
 
     if args.task:
         if run_one(console, agent, args.task) is None:

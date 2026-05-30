@@ -1,8 +1,4 @@
-"""The Environment seam — the agent's *body*: what it can do and touch.
-
-Subclass `Environment`, override `tools()` to expose callables and `context()`
-to add prompt context. `LocalFS` is the default body for a code agent.
-"""
+"""LocalFS — the default body for a code agent: read / grep / write / bash."""
 from __future__ import annotations
 
 import subprocess
@@ -12,15 +8,7 @@ from typing import Any
 
 from OpenHosta import tool
 
-
-class Environment:
-    """Subclass. Override `tools()` to expose callables; `context()` for prompt context."""
-
-    def tools(self) -> list[Callable[..., Any]]:
-        return []
-
-    def context(self) -> str:
-        return ""
+from .base import Environment
 
 
 class LocalFS(Environment):

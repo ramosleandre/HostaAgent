@@ -148,10 +148,12 @@ In a session, type `/` to autocomplete commands:
 ```
 hostaagent/
 ├── core.py            # Agent — the ~50-line ReAct loop  (the brain)
-├── environment.py     # Environment, LocalFS             (the body)
 ├── types.py           # AgentResult, Turn, ToolUse
-├── config.py          # ~/.hostaagent/config.toml load/save
-└── driver/            # the lifecycle seam
+├── config.py          # ~/.hostaagent/config.toml load/save + model resolution
+├── environment/       # the body seam — detachable environments
+│   ├── base.py        #   Environment
+│   └── local.py       #   LocalFS
+└── driver/            # the lifecycle seam — detachable drivers
     ├── base.py        #   Driver, CliDriver, DaemonDriver
     └── cli/           #   the hosta app (theme, render, repl, wizard)
 ```

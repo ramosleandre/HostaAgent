@@ -30,6 +30,6 @@ def make_agent() -> Agent:
 
 
 if __name__ == "__main__":
-    from hostaagent.driver.cli import launch
+    from hostaagent.driver import cli
 
-    launch(make_agent())
+    cli.launch(make_agent)

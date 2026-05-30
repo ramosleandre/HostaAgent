@@ -44,5 +44,5 @@ def make_agent() -> Agent:
 
 
 if __name__ == "__main__":
-    from hostaagent.driver.cli import launch
-    launch(make_agent())
+    from hostaagent.driver import cli
+    cli.launch(make_agent)

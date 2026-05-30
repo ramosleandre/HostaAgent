@@ -101,3 +101,18 @@ def build_model(cfg: dict[str, Any]) -> Any:
         base_url=model.get("base_url") or "https://api.openai.com/v1",
         api_key=model.get("api_key") or None,
     )
+
+
+def set_default_model(cfg: dict[str, Any]) -> None:
+    """Make the resolved config OpenHosta's global default model.
+
+    After this, any ``Agent(env=...)`` built *without* an explicit ``model=`` uses
+    this model — scripts, ``hosta --agent``, and subagents alike. An explicit
+    ``Agent(env=..., model=X)`` still wins. This is the single place that wires the
+    user's config into the model layer.
+    """
+    from OpenHosta import config as _openhosta_config
+
+    # OpenHosta's setter copies attributes into the shared default model instance,
+    # so existing Agents that captured `config.DefaultModel` see the update too.
+    _openhosta_config.DefaultModel = build_model(cfg)

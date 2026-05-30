@@ -115,15 +115,22 @@ def test_default_agent_honors_configured_path(tmp_path):
     assert app._default_agent(cfg2).persona == "You are a helpful autonomous agent."
 
 
-def test_configured_model_is_applied_to_agent():
-    # The CLI applies the configured model to any agent (the bug where examples
-    # silently fell back to OpenAI instead of the user's local/Gemini config).
-    from hostaagent.config import build_model
-    cfg = {"model": {"name": "qwen3.5:9b", "base_url": "http://localhost:11434/v1", "api_key": ""}}
-    agent = Agent(env=LocalFS("."))
-    agent.model = build_model(cfg)
-    assert agent.model.model_name == "qwen3.5:9b"
-    assert "11434" in agent.model.base_url
+def test_set_default_model_applies_to_new_agents():
+    # The configured model becomes OpenHosta's default, so any Agent built without an
+    # explicit model uses it (the bug where examples fell back to OpenAI).
+    from OpenHosta import config as ohc
+
+    from hostaagent.config import set_default_model
+    m = ohc.DefaultModel
+    orig_name, orig_url = m.model_name, m.base_url
+    try:
+        set_default_model({"model": {"name": "qwen3.5:9b",
+                                     "base_url": "http://localhost:11434/v1", "api_key": ""}})
+        agent = Agent(env=LocalFS("."))
+        assert agent.model.model_name == "qwen3.5:9b"
+        assert "11434" in agent.model.base_url
+    finally:
+        m.model_name, m.base_url = orig_name, orig_url
 
 
 def test_validate_agent_file(tmp_path):
