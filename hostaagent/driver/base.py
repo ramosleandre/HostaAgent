@@ -1,7 +1,8 @@
 """The Driver seam — the agent's *lifecycle*: how and when it's launched.
 
-`CliDriver` runs one task per invocation (used by the `hosta` command).
-`DaemonDriver` is always-on; subclass and provide `events()` yielding tasks.
+`CliDriver` runs one task per invocation (the library-level driver; the rich
+`hosta` terminal app lives in `hostaagent.driver.cli`). `DaemonDriver` is
+always-on; subclass and provide `events()` yielding tasks.
 """
 from __future__ import annotations
 
@@ -9,8 +10,8 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from .core import Agent
-from .types import AgentResult
+from ..core import Agent
+from ..types import AgentResult
 
 
 class Driver:
@@ -21,7 +22,7 @@ class Driver:
 
 
 class CliDriver(Driver):
-    """One task per invocation. Used by the `hosta` command (see 06_CLI_UX)."""
+    """One task per invocation. The `hosta` command wraps this in a violet UI."""
 
     def run(self, task: str | None = None) -> AgentResult:
         agent = self.agent_factory()

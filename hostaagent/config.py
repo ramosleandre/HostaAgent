@@ -3,8 +3,9 @@
 Resolved from (lowest to highest precedence):
   1. ``~/.hostaagent/config.toml``         (user defaults, written by the wizard)
   2. ``./.hostaagent.toml``                (per-project override)
-  3. CLI flags (handled in ``cli.py``)
+  3. CLI flags (handled in ``driver/cli``)
 
+The interactive wizard that *writes* this file lives in ``driver/cli/wizard.py``.
 Everything about the *agent* is Python (subclassing), never TOML.
 """
 from __future__ import annotations
@@ -72,38 +73,6 @@ def _dump_toml(cfg: dict[str, Any]) -> str:
 def save_config(cfg: dict[str, Any], path: Path = USER_CONFIG) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_dump_toml(cfg))
-
-
-def run_config_wizard() -> dict[str, Any]:
-    """Interactive first-run setup; writes ``~/.hostaagent/config.toml``."""
-    from rich.console import Console
-    from rich.prompt import Prompt
-
-    from .theme import VIOLET
-
-    console = Console(theme=VIOLET)
-    console.print("\n[primary]Welcome to HostaAgent![/primary] Let's set up your model.\n")
-    providers = {
-        "OpenAI": "https://api.openai.com/v1",
-        "Anthropic": "https://api.anthropic.com/v1",
-        "Local": "http://localhost:11434/v1",
-        "Other": "",
-    }
-    provider = Prompt.ask("[accent]Provider[/accent]", choices=list(providers), default="OpenAI")
-    default_url = providers[provider]
-    base_url = Prompt.ask("[accent]Base URL[/accent]",
-                          default=default_url or "http://localhost:11434/v1")
-    name = Prompt.ask("[accent]Model name[/accent]", default="gpt-4o")
-    api_key = Prompt.ask("[accent]API key[/accent] (leave blank for local)",
-                         default="", password=True)
-
-    cfg = {
-        "model": {"name": name, "base_url": base_url, "api_key": api_key},
-        "ui": {"theme": "violet"},
-    }
-    save_config(cfg)
-    console.print(f"\n[ok]✓ Saved to {USER_CONFIG}[/ok]\n")
-    return cfg
 
 
 def build_model(cfg: dict[str, Any]) -> Any:

@@ -1,41 +1,66 @@
+<div align="center">
+
 # HostaAgent
 
-> **Claude Code in ~50 lines you can fork.**
+**Claude Code in ~50 lines you can fork.**
 
-HostaAgent takes the irreducible core of a coding agent — the ReAct loop — and
-exposes it as a **~50-line class you subclass** to build any agent: coding
-assistant, computer-use, business automation, game NPC.
+[![PyPI](https://img.shields.io/pypi/v/hostaagent.svg?color=a78bfa)](https://pypi.org/project/hostaagent/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-a78bfa.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e.svg)](LICENSE)
+[![CI](https://github.com/hand-e-fr/HostaAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/hand-e-fr/HostaAgent/actions/workflows/ci.yml)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 
-It sits on two layers:
+</div>
 
-| | |
-|---|---|
-| **[OpenHosta](https://github.com/hand-e-fr/OpenHosta)** | the typed LLM call + tool calling (`@tool`, `tool_to_schema`, `Model.respond`). |
-| **HostaAgent** | the loop + 2 seams (`Environment`, `Driver`) + a violet CLI. |
+HostaAgent is a minimalist skeleton for building agents. It takes the irreducible
+core of a coding agent — the ReAct loop — and exposes it as a ~50-line class you
+subclass. Fork it, plug in your tools, ship an agent in minutes.
 
-**Rule of thumb:** one typed call → OpenHosta; a loop with state → HostaAgent.
+It builds on [OpenHosta](https://github.com/hand-e-fr/OpenHosta) (the typed LLM call
+and tool calling) and adds the loop, two seams, and a command-line interface on top.
+
+---
 
 ## Install
 
-```bash
-pip install hostaagent          # once published to PyPI
-```
-
-### From source
+### From PyPI
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"         # installs dev tools
+pip install hostaagent          # not published yet — coming soon
 ```
 
-Working on OpenHosta and HostaAgent together (sibling folders)? Install OpenHosta
-from your local checkout so edits are live:
+### From the repository
 
 ```bash
-pip install -e ../OpenHosta && pip install -e . --no-deps && pip install rich
+git clone https://github.com/hand-e-fr/HostaAgent.git
+cd HostaAgent
+python -m venv .venv && source .venv/bin/activate   # recommended
+pip install -e ".[dev]"          # editable install + dev tools (ruff, mypy, pytest)
 ```
 
-## One-minute example
+Working on OpenHosta at the same time? Install it from your local checkout so your
+edits are live: `pip install -e ../OpenHosta && pip install -e . --no-deps`.
+
+## The idea
+
+The goal is a skeleton to develop agents fast. An agent is split into three
+fully-agnostic parts — swap any one without touching the others:
+
+| Part | What it is | Default |
+|---|---|---|
+| **Agent** | the brain — the invariant async ReAct loop (`core.py`, ~50 lines) | you rarely touch it |
+| **Environment** | the body — what it can do and touch (`tools()` + `context()`) | `LocalFS` (read / grep / write / bash) |
+| **Driver** | the lifecycle — how and when it runs | `CliDriver`, `DaemonDriver` |
+
+Plug a new body to get a new agent type (computer-use, browser, game NPC). Plug a
+new driver to get a new way to run (CLI, daemon, webhook). The loop stays the same.
+
+## Two ways to use it
+
+### As a Python package
+
+Subclass `Agent`, give it a body, run it through a driver. Configuration is
+subclassing — no TOML, JSON, or DSL for the agent itself.
 
 ```python
 from hostaagent import Agent, LocalFS, CliDriver, tool
@@ -54,53 +79,72 @@ class CodeAgent(Agent):
 CliDriver(lambda: CodeAgent(env=LocalFS("."))).run()
 ```
 
-That's a complete, specific agent. **Configuration = subclassing** — no TOML/JSON/DSL
-for the agent itself. The only config *file* is the CLI's model + API key.
-
-## The CLI
-
-```bash
-hosta                          # interactive REPL in the current dir
-hosta "summarize README.md"    # one-shot task
-hosta --agent examples/code_agent.py "run the tests"
-hosta --model gpt-4o "..."     # override the model
-hosta config                   # first-run wizard (model + API key)
-hosta config show              # print resolved config
-```
-
-The first run launches a wizard that saves `~/.hostaagent/config.toml`.
-A project can override it with `./.hostaagent.toml`.
-
-## The 3 axes
-
-1. **Agent = brain** — the invariant async ReAct loop (`hostaagent/core.py`, ~50 lines). You rarely touch it.
-2. **Environment = body** — what the agent can do/touch (`tools()` + `context()`). `LocalFS` is the default.
-3. **Driver = lifecycle** — how/when it runs (`CliDriver`, `DaemonDriver`).
-
-Plug a new body → new agent type. Plug a new driver → new way to run. The loop is unchanged.
-
 See [`examples/`](examples/) for a code agent, a custom (read-only) environment, and a daemon driver.
 
-## How it works (one task)
+### As the `hosta` command
+
+The default configuration is a simple code agent that lives in your working
+directory and runs as a CLI. Just launch it — on first run it walks you through a
+quick setup (choose a provider: OpenAI, Gemini, a local Ollama/vLLM server, …):
+
+```bash
+hosta                          # first run: setup, then an interactive session
+hosta "summarize README.md"    # one-shot task
+hosta config                   # re-run the setup
+hosta config show              # print the resolved config
+```
+
+More agent types are coming soon. Today `hosta` ships the code agent; later you will
+be able to point it at your own agent (`hosta --agent my_agent.py`) or set a
+different default.
+
+Configuration lives in `~/.hostaagent/config.toml` (a project can override it with
+`./.hostaagent.toml`) — the only config file in the project.
+
+## Inside a `hosta` run
+
+A run renders as step cards: condensed tools (no long absolute paths), the agent's
+reasoning, then the answer, then a status line.
 
 ```
-Driver → Agent.run(task)
-   → build system prompt (persona + Environment.context())
-   → OpenHosta Model.respond(system, msgs, tools=schemas)
-   → tool_calls?  yes → run tools (Environment) → append results → loop
-                  no  → AgentResult(answer, turns)
+╭─ read · grep ───────────────────────────────╮
+│ ▸ I'll look at the auth module first.        │
+│ ⚙ read   …/src/auth.py                       │
+│   ↳ 142 lines of python …                    │
+│ ⚙ grep   validate_token  src                 │
+│   ↳ src/auth.py:42  src/middleware.py:18     │
+╰──────────────────────────────────────────────╯
+The token expiry check was off by one. Patched.
+✓ done · 4 tools · 3 turns
 ```
 
-## Design depth
+In a session, type `/` to autocomplete commands:
 
-The full design lives in [`blueprint/`](blueprint/) — vision, the exact spec, the
-OpenHosta tool-calling MVP, the leak-reference mapping, and what's deliberately
-deferred (permissions, streaming, MCP, sandboxing, …).
+| Command | Effect |
+|---|---|
+| `/model <name>` | switch model for the session |
+| `/tools` | list available tools |
+| `/think` | toggle showing the agent's reasoning |
+| `/clear` | clear the screen |
+| `/help`, `/exit` | help, quit (or `Ctrl-D`) |
+
+## Project layout
+
+```
+hostaagent/
+├── core.py            # Agent — the ~50-line ReAct loop  (the brain)
+├── environment.py     # Environment, LocalFS             (the body)
+├── types.py           # AgentResult, Turn, ToolUse
+├── config.py          # ~/.hostaagent/config.toml load/save
+└── driver/            # the lifecycle seam
+    ├── base.py        #   Driver, CliDriver, DaemonDriver
+    └── cli/           #   the hosta app (theme, render, repl, wizard)
+```
 
 ## Contributing
 
-- CI (ruff + mypy + pytest, Python 3.10–3.12) runs on every PR — see `.github/workflows/ci.yml`.
-- **Never push to `main`.** Open a PR from a feature branch.
+- CI (ruff + mypy + pytest, Python 3.10–3.12) runs on every PR.
+- Never push to `main`. Open a PR from a feature branch.
 - Run `ruff check . && mypy hostaagent && pytest -q` before opening a PR.
 
 ## License

@@ -20,6 +20,8 @@ classifiers = [
 dependencies = [
     "openhosta @ git+https://github.com/hand-e-fr/OpenHosta.git@tool_calling",
     "rich>=13.0",
+    "prompt_toolkit>=3.0",
+    "questionary>=2.0",
     "tomli>=2.0 ; python_version < '3.11'",
 ]
 
@@ -27,7 +29,7 @@ dependencies = [
 dev = ["pytest>=7", "pytest-asyncio>=0.21", "ruff>=0.4", "mypy>=1.8"]
 
 [project.scripts]
-hosta = "hostaagent.cli:main"
+hosta = "hostaagent.driver.cli:main"
 
 [project.urls]
 Repository = "https://github.com/hand-e-fr/HostaAgent"
@@ -62,6 +64,11 @@ follow_imports = "skip"
 # tomllib (3.11+) / tomli (3.10 backport) — treat as untyped to avoid stub noise.
 [[tool.mypy.overrides]]
 module = ["tomllib", "tomli"]
+ignore_missing_imports = true
+
+# CLI deps without shipped stubs.
+[[tool.mypy.overrides]]
+module = ["questionary", "questionary.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
