@@ -2,7 +2,7 @@
 
 # HostaAgent
 
-**Claude Code in ~50 lines you can fork.**
+**A framework to build agents the simplest way possible.**
 
 [![PyPI](https://img.shields.io/pypi/v/hostaagent.svg?color=a78bfa)](https://pypi.org/project/hostaagent/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-a78bfa.svg)](https://www.python.org/)
@@ -12,9 +12,9 @@
 
 </div>
 
-HostaAgent is a minimalist skeleton for building agents. It takes the irreducible
-core of a coding agent — the ReAct loop — and exposes it as a ~50-line class you
-subclass. Fork it, plug in your tools, ship an agent in minutes.
+Its core — the ReAct loop — is about 50 lines you subclass. That's the whole
+engine; everything else just plugs in around it. Fork it, add your tools, ship an
+agent in minutes.
 
 It builds on [OpenHosta](https://github.com/hand-e-fr/OpenHosta) (the typed LLM call
 and tool calling) and adds the loop, two seams, and a command-line interface on top.
@@ -32,7 +32,7 @@ pip install hostaagent          # not published yet — coming soon
 ### From the repository
 
 ```bash
-git clone https://github.com/hand-e-fr/HostaAgent.git
+git clone https://github.com/ramosleandre/HostaAgent.git
 cd HostaAgent
 python -m venv .venv && source .venv/bin/activate   # recommended
 pip install -e ".[dev]"          # editable install + dev tools (ruff, mypy, pytest)
