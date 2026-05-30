@@ -26,7 +26,7 @@ __all__ = [
     "LocalFS",
     "Driver",
     "CliDriver",
-    # "DaemonDriver",
+    "DaemonDriver",
     "tool",
     "__version__",
 ]
