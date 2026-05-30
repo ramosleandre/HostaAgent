@@ -133,6 +133,38 @@ def test_set_default_model_applies_to_new_agents():
         m.model_name, m.base_url = orig_name, orig_url
 
 
+def test_default_agent_resolves_registered_name(tmp_path, monkeypatch):
+    from hostaagent.driver.cli import app
+    af = tmp_path / "ag.py"
+    af.write_text("from hostaagent import Agent, LocalFS\n"
+                  "def make_agent():\n    a = Agent(env=LocalFS('.'))\n"
+                  "    a.persona = 'registered'\n    return a\n")
+    # default points at a registered NAME; stub the registry lookup
+    monkeypatch.setattr(app, "resolve_agent", lambda ref: str(af) if ref == "mine" else None)
+    cfg = {"model": {"name": "m", "base_url": "http://localhost:11434/v1", "api_key": "k"},
+           "agent": {"default": "mine", "path": ""}}
+    assert app._default_agent(cfg).persona == "registered"
+
+
+def test_main_unknown_agent_errors_cleanly(monkeypatch):
+    import pytest
+    from rich.console import Console
+
+    from hostaagent.driver.cli import app
+    from hostaagent.driver.cli.theme import VIOLET
+    rec = Console(theme=VIOLET, record=True, force_terminal=False)
+    monkeypatch.setattr(app, "console", rec)
+    monkeypatch.setattr(app, "load_config",
+                        lambda: {"model": {"name": "m", "base_url": "x", "api_key": ""}})
+    monkeypatch.setattr(app, "set_default_model", lambda cfg: None)
+    with pytest.raises(SystemExit) as exc:
+        app.main(["--agent", "nope", "do a thing"])
+    assert exc.value.code == 1
+    lines = [ln.strip() for ln in rec.export_text().splitlines()]
+    assert any("unknown agent" in ln for ln in lines)
+    assert "1" not in lines  # regression: the SystemExit code must not be printed as output
+
+
 def test_validate_agent_file(tmp_path):
     from hostaagent.driver.cli import app
     cfg = {"model": {"name": "m", "base_url": "http://localhost:11434/v1", "api_key": "k"}}

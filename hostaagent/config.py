@@ -10,6 +10,7 @@ Everything about the *agent* is Python (subclassing), never TOML.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +22,11 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 USER_CONFIG = Path.home() / ".hostaagent" / "config.toml"
 PROJECT_CONFIG = Path(".hostaagent.toml")
 
+_AGENT_NAME = re.compile(r"^[a-zA-Z0-9_-]+$")  # safe as a TOML key
+
 DEFAULTS: dict[str, Any] = {
     "model": {"name": "gpt-4o", "base_url": "https://api.openai.com/v1", "api_key": ""},
-    "agent": {"path": ""},   # optional: a Python file `hosta` loads by default
+    "agent": {"default": "", "path": ""},  # default agent: a registered name or a path
     "ui": {"theme": "violet"},
 }
 
@@ -89,6 +92,44 @@ def set_value(dotted_key: str, value: str) -> dict[str, Any]:
     cfg.setdefault(section, {})[key] = value
     save_config(cfg)
     return cfg
+
+
+# ---- agent registry (the [agents] name -> path map) ----
+
+def list_agents() -> dict[str, str]:
+    """Return the registered ``name -> path`` map."""
+    return dict((load_config() or {}).get("agents", {}))
+
+
+def add_agent(name: str, path: str) -> dict[str, Any]:
+    """Register an agent file under ``name`` (stored as an absolute path)."""
+    if not _AGENT_NAME.match(name):
+        raise ValueError(f"invalid agent name {name!r} (use letters, digits, '_' or '-')")
+    cfg = load_config() or _merge(DEFAULTS, {})
+    cfg.setdefault("agents", {})[name] = str(Path(path).expanduser().resolve())
+    save_config(cfg)
+    return cfg
+
+
+def remove_agent(name: str) -> dict[str, Any]:
+    """Unregister an agent name."""
+    cfg = load_config() or _merge(DEFAULTS, {})
+    cfg.get("agents", {}).pop(name, None)
+    if cfg.get("agent", {}).get("default") == name:
+        cfg["agent"]["default"] = ""
+    save_config(cfg)
+    return cfg
+
+
+def resolve_agent(ref: str) -> str | None:
+    """Resolve a reference to an agent file path: a registered name, or a path. None if neither."""
+    if not ref:
+        return None
+    registered = list_agents().get(ref)
+    if registered:
+        return registered
+    p = Path(ref).expanduser()
+    return str(p) if p.exists() else None
 
 
 def build_model(cfg: dict[str, Any]) -> Any:

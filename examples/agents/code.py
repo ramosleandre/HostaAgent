@@ -1,9 +1,11 @@
-"""The canonical CodeAgent — a coding assistant in a dozen lines.
+"""A coding agent — reads, edits, and runs the test suite. The default `hosta` agent.
 
-Run it:  hosta --agent examples/code_agent.py "summarize README.md"
-or:      python examples/code_agent.py
-(needs a model configured — see `hosta config`).
+Register:  hosta add agent examples/agents/code.py
+Run:       hosta --agent code "fix the failing test"
+Direct:    python examples/agents/code.py
 """
+from __future__ import annotations
+
 import subprocess
 
 from hostaagent import Agent, LocalFS, tool
@@ -25,7 +27,6 @@ class CodeAgent(Agent):
         self.use(run_tests)
 
 
-# `make_agent` lets `hosta --agent examples/code_agent.py` load this agent.
 def make_agent() -> Agent:
     return CodeAgent(env=LocalFS("."))
 

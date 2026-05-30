@@ -3,9 +3,9 @@
 Pure stdlib (urllib), no extra dependencies. Give it links in your task; it pulls
 the visible text and answers from what it read.
 
-Run it:
-    hosta --agent examples/research_agent.py "compare https://a.com and https://b.com"
-    python examples/research_agent.py
+Register:  hosta add agent examples/agents/research.py
+Run:       hosta --agent research "compare https://a.com and https://b.com"
+Direct:    python examples/agents/research.py
 """
 from __future__ import annotations
 

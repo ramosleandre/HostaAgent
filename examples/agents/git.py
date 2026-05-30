@@ -3,9 +3,9 @@
 It reads the diff (and recent history), finds real bugs, and suggests concrete
 fixes — without modifying anything. A coding agent's read-only sibling.
 
-Run it (inside a git repo with changes):
-    hosta --agent examples/git_reviewer.py "review my staged changes"
-    python examples/git_reviewer.py
+Register:  hosta add agent examples/agents/git.py
+Run:       hosta --agent git "review my staged changes"
+Direct:    python examples/agents/git.py
 """
 from __future__ import annotations
 

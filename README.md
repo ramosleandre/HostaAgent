@@ -84,24 +84,29 @@ if __name__ == "__main__":
 For headless / programmatic use (no UI), run it through a driver instead:
 `CliDriver(lambda: CodeAgent(env=LocalFS("."))).run()`.
 
-Ready-to-run agents in [`examples/`](examples/):
+Ready-to-run agents in [`examples/agents/`](examples/agents/):
 
-| Example | What it does |
+| Agent | What it does |
 |---|---|
-| [`code_agent.py`](examples/code_agent.py) | reads, edits, and runs the test suite |
-| [`sql_agent.py`](examples/sql_agent.py) | schema-aware, read-only SQL analyst over a SQLite database |
-| [`git_reviewer.py`](examples/git_reviewer.py) | reviews your local `git diff` and suggests fixes |
-| [`research_agent.py`](examples/research_agent.py) | fetches URLs and synthesizes a cited answer (stdlib only) |
-| [`custom_env.py`](examples/custom_env.py) | a custom read-only `Environment` |
-| [`daemon_webhook.py`](examples/daemon_webhook.py) | a `DaemonDriver` that runs a task per event |
+| [`code.py`](examples/agents/code.py) | reads, edits, and runs the test suite |
+| [`sql.py`](examples/agents/sql.py) | schema-aware, read-only SQL analyst over a SQLite database |
+| [`git.py`](examples/agents/git.py) | reviews your local `git diff` and suggests fixes |
+| [`research.py`](examples/agents/research.py) | fetches URLs and synthesizes a cited answer (stdlib only) |
 
-Run any of them three ways:
+Plus [`custom_env.py`](examples/custom_env.py) (a custom `Environment`) and
+[`daemon_webhook.py`](examples/daemon_webhook.py) (a `DaemonDriver`).
+
+**Register an agent once, then run it by name:**
 
 ```bash
-python examples/sql_agent.py                          # its own CliDriver
-hosta --agent examples/sql_agent.py "top 5 by spend"  # load it into hosta
-hosta config set agent.path examples/sql_agent.py     # make it hosta's default, then just `hosta`
+hosta add agent examples/agents/sql.py     # registers it as "sql"
+hosta agents                               # list registered agents
+hosta --agent sql "top 5 customers by spend"
+hosta use sql                              # make it the default → plain `hosta` runs it
 ```
+
+Or run a file directly — `hosta --agent examples/agents/sql.py "…"` or
+`python examples/agents/sql.py "…"`.
 
 ### As the `hosta` command
 
@@ -112,11 +117,12 @@ quick setup (choose a provider: OpenAI, Gemini, a local Ollama/vLLM server, …)
 ```bash
 hosta                          # first run: setup, then an interactive session
 hosta "summarize README.md"    # one-shot task
-hosta --agent my_agent.py "…"  # run your own agent (make_agent() / Agent subclass)
-hosta config                   # re-run the setup wizard
-hosta config show              # print the resolved config
-hosta config set model.name gpt-4o          # change one setting
-hosta config set agent.path ./my_agent.py   # set the default agent for plain `hosta`
+hosta --agent sql "…"          # run a registered agent (or a file path)
+hosta --model gpt-4o "…"       # override the model
+hosta add agent ./my_agent.py  # register an agent (names it after the file)
+hosta agents                   # list registered agents
+hosta use sql                  # set the default agent for plain `hosta`
+hosta config                   # setup wizard  (· config show  · config set <k> <v>)
 ```
 
 Provider support today (anything OpenAI-compatible): **OpenAI**, **Gemini** (its

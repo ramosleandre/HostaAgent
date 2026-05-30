@@ -1,7 +1,7 @@
 """The ``hosta`` command — argument parsing + dispatch.
 
 No business logic lives here, only wiring: resolve config (launching the wizard on
-first run), apply the configured model, then either run one task or open the REPL.
+first run), wire the configured model in, then run a task or open the REPL.
 `launch()` is the same machinery exposed for an example's ``__main__`` block.
 """
 from __future__ import annotations
@@ -14,8 +14,17 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 
-from ...config import load_config, set_default_model, set_value
+from ...config import (
+    add_agent,
+    list_agents,
+    load_config,
+    remove_agent,
+    resolve_agent,
+    set_default_model,
+    set_value,
+)
 from ...core import Agent
 from ...environment import LocalFS
 from .repl import run_one, run_repl
@@ -25,13 +34,16 @@ from .wizard import run_config_wizard
 console = Console(theme=VIOLET)
 
 
+# ---- loading agents ----
+
 def _default_agent(cfg: dict[str, Any]) -> Agent:
-    # Honor a configured default agent (`hosta config set agent.path ./my_agent.py`);
-    # otherwise the built-in code agent rooted at the current directory. The model is
-    # applied by the caller, so we don't build it here.
-    path = (cfg.get("agent") or {}).get("path", "")
-    if path and Path(path).expanduser().exists():
-        return _load_agent(Path(path).expanduser(), cfg)
+    # Honor a configured default agent (a registered name or a path); otherwise the
+    # built-in code agent rooted at the current directory.
+    agent_cfg = cfg.get("agent") or {}
+    ref = agent_cfg.get("default") or agent_cfg.get("path") or ""
+    resolved = resolve_agent(ref) if ref else None
+    if resolved and Path(resolved).exists():
+        return _load_agent(Path(resolved), cfg)
     return Agent(env=LocalFS("."))
 
 
@@ -87,6 +99,8 @@ def launch(agent: Agent | Callable[[], Agent], task: str | None = None) -> None:
         run_repl(console, resolved, cfg)
 
 
+# ---- verbs ----
+
 def _handle_config(raw: list[str]) -> None:
     sub = raw[1] if len(raw) > 1 else ""
     if sub == "show":
@@ -101,29 +115,101 @@ def _handle_config(raw: list[str]) -> None:
         if key == "agent.path" and value:
             problem = _validate_agent_file(value, load_config() or {})
             if problem:
-                console.print(f"[err]not a usable agent file:[/err] {problem}")
+                console.print(f"[err]not a usable agent file:[/err] {escape(problem)}")
                 sys.exit(1)
         try:
             set_value(key, value)
         except ValueError as e:
-            console.print(f"[err]{e}[/err]")
+            console.print(f"[err]{escape(str(e))}[/err]")
             sys.exit(1)
-        console.print(f"[ok]✓ set {key} = {value}[/ok]")
+        console.print(f"[ok]✓ set {escape(key)} = {escape(value)}[/ok]")
     else:
         run_config_wizard()
+
+
+def _handle_agents() -> None:
+    agents = list_agents()
+    default = (load_config() or {}).get("agent", {}).get("default", "")
+    if not agents:
+        console.print("[muted]no agents registered yet — add one:[/muted] "
+                      "[tool]hosta add agent <path>[/tool]")
+        return
+    console.print("[primary]registered agents[/primary]")
+    for name, path in sorted(agents.items()):
+        mark = "  [ok]✓ default[/ok]" if name == default else ""
+        console.print(f"  [tool]{escape(name)}[/tool]{mark}\n    [muted]{escape(path)}[/muted]")
+
+
+def _handle_add(raw: list[str]) -> None:
+    if len(raw) < 3 or raw[1] != "agent":
+        console.print("[err]usage: hosta add agent <path> [--name <name>][/err]")
+        sys.exit(1)
+    path = raw[2]
+    name = None
+    if "--name" in raw:
+        i = raw.index("--name")
+        name = raw[i + 1] if i + 1 < len(raw) else None
+    name = name or Path(path).stem
+    problem = _validate_agent_file(path, load_config() or {})
+    if problem:
+        console.print(f"[err]not a usable agent file:[/err] {escape(problem)}")
+        sys.exit(1)
+    try:
+        add_agent(name, path)
+    except ValueError as e:
+        console.print(f"[err]{escape(str(e))}[/err]")
+        sys.exit(1)
+    console.print(f"[ok]✓ added agent[/ok] [tool]{escape(name)}[/tool]")
+    console.print(f"[muted]run:[/muted] [tool]hosta --agent {escape(name)}[/tool]  "
+                  f"[muted]· make default:[/muted] [tool]hosta use {escape(name)}[/tool]")
+
+
+def _handle_remove(raw: list[str]) -> None:
+    if len(raw) < 3 or raw[1] != "agent":
+        console.print("[err]usage: hosta remove agent <name>[/err]")
+        sys.exit(1)
+    name = raw[2]
+    if name not in list_agents():
+        console.print(f"[warn]no agent named[/warn] [tool]{escape(name)}[/tool]")
+        return
+    remove_agent(name)
+    console.print(f"[ok]✓ removed agent[/ok] [tool]{escape(name)}[/tool]")
+
+
+def _handle_use(raw: list[str]) -> None:
+    if len(raw) < 2:
+        console.print("[err]usage: hosta use <name>[/err]")
+        sys.exit(1)
+    name = raw[1]
+    if resolve_agent(name) is None:
+        console.print(f"[err]unknown agent:[/err] {escape(name)} "
+                      "[muted](register it with `hosta add agent <path>`)[/muted]")
+        sys.exit(1)
+    set_value("agent.default", name)
+    console.print(f"[ok]✓ default agent →[/ok] [tool]{escape(name)}[/tool] "
+                  "[muted](plain `hosta` runs it)[/muted]")
+
+
+_VERBS: dict[str, Callable[[list[str]], None]] = {
+    "config": _handle_config,
+    "agents": lambda raw: _handle_agents(),
+    "add": _handle_add,
+    "remove": _handle_remove,
+    "use": _handle_use,
+}
 
 
 def main(argv: list[str] | None = None) -> None:
     raw = list(sys.argv[1:] if argv is None else argv)
 
-    if raw and raw[0] == "config":  # config / config show / config set <key> <value>
-        _handle_config(raw)
+    if raw and raw[0] in _VERBS:  # config / agents / add / remove / use
+        _VERBS[raw[0]](raw)
         return
 
     parser = argparse.ArgumentParser(
         prog="hosta", description="A framework to build agents the simplest way possible.")
     parser.add_argument("task", nargs="?", help="task to run (omit for an interactive session)")
-    parser.add_argument("-a", "--agent", type=Path, help="load a custom agent from a Python file")
+    parser.add_argument("-a", "--agent", help="agent to run: a registered name or a Python file")
     parser.add_argument("-m", "--model", help="override the model name")
     args = parser.parse_args(raw)
 
@@ -132,10 +218,19 @@ def main(argv: list[str] | None = None) -> None:
         cfg["model"]["name"] = args.model
     set_default_model(cfg)  # wire config into the default model before building agents
 
-    try:
-        agent = _load_agent(args.agent, cfg) if args.agent else _default_agent(cfg)
+    agent_path: Path | None = None
+    if args.agent:
+        resolved = resolve_agent(args.agent)
+        if resolved is None:
+            console.print(f"[err]unknown agent:[/err] {escape(args.agent)} "
+                          "[muted](try `hosta agents`, or pass a file path)[/muted]")
+            sys.exit(1)
+        agent_path = Path(resolved)
+
+    try:  # _load_agent may raise SystemExit with a "no agent found" message
+        agent = _load_agent(agent_path, cfg) if agent_path else _default_agent(cfg)
     except SystemExit as e:
-        console.print(f"[err]{e}[/err]")
+        console.print(f"[err]{escape(str(e))}[/err]")
         sys.exit(1)
 
     if args.task:

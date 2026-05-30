@@ -22,6 +22,43 @@ def test_set_value_rejects_bad_key(tmp_path, monkeypatch):
         cfgmod.set_value("modelname", "x")  # no section.key
 
 
+def test_agent_registry_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfgmod, "USER_CONFIG", tmp_path / "config.toml")
+    monkeypatch.setattr(cfgmod, "PROJECT_CONFIG", tmp_path / "absent.toml")
+    af = tmp_path / "myagent.py"
+    af.write_text("from hostaagent import Agent, LocalFS\n"
+                  "def make_agent():\n    return Agent(env=LocalFS('.'))\n")
+
+    cfgmod.add_agent("mine", str(af))
+    assert cfgmod.list_agents() == {"mine": str(af.resolve())}
+    assert cfgmod.resolve_agent("mine") == str(af.resolve())   # by name
+    assert cfgmod.resolve_agent(str(af)) == str(af)            # by path
+    assert cfgmod.resolve_agent("nope") is None                # unknown
+
+    cfgmod.remove_agent("mine")
+    assert cfgmod.list_agents() == {}
+
+
+def test_remove_agent_clears_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(cfgmod, "USER_CONFIG", tmp_path / "config.toml")
+    monkeypatch.setattr(cfgmod, "PROJECT_CONFIG", tmp_path / "absent.toml")
+    af = tmp_path / "a.py"
+    af.write_text("from hostaagent import Agent, LocalFS\ndef make_agent():\n"
+                  "    return Agent(env=LocalFS('.'))\n")
+    cfgmod.add_agent("mine", str(af))
+    cfgmod.set_value("agent.default", "mine")
+    cfgmod.remove_agent("mine")
+    assert cfgmod.load_config()["agent"]["default"] == ""
+
+
+def test_add_agent_rejects_bad_name(tmp_path, monkeypatch):
+    import pytest
+    monkeypatch.setattr(cfgmod, "USER_CONFIG", tmp_path / "c.toml")
+    monkeypatch.setattr(cfgmod, "PROJECT_CONFIG", tmp_path / "absent.toml")
+    with pytest.raises(ValueError):
+        cfgmod.add_agent("bad name", "/x")  # whitespace not allowed in a name
+
+
 def test_canonical_import_surface():
     # The only import a user needs (from 01_VISION / 02_FINAL_SPEC).
     from hostaagent import Agent, CliDriver, LocalFS, tool  # noqa: F401

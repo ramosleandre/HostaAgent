@@ -3,9 +3,9 @@
 It inspects the schema, then writes SELECT queries to answer questions in plain
 English. Writes are refused, so it's safe to point at a real database.
 
-Run it:
-    HOSTA_DB=shop.db hosta --agent examples/sql_agent.py "top 5 customers by spend?"
-    HOSTA_DB=shop.db python examples/sql_agent.py        # interactive
+Register:  hosta add agent examples/agents/sql.py
+Run:       HOSTA_DB=shop.db hosta --agent sql "top 5 customers by spend?"
+Direct:    HOSTA_DB=shop.db python examples/agents/sql.py "..."
 """
 from __future__ import annotations
 
