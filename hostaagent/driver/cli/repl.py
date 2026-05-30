@@ -15,12 +15,14 @@ from typing import Any
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from rich.console import Console
+from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
 
 from ...config import build_model
 from ...core import Agent
-from .render import render_result, task_panel
+from .render import task_panel
+from .stream import StreamRenderer
 from .theme import PROMPT_STYLE
 
 SLASH_COMMANDS: dict[str, str] = {
@@ -59,23 +61,30 @@ def _help(console: Console) -> None:
 
 
 def run_one(console: Console, agent: Agent, task: str, show_thinking: bool = True) -> Any:
-    """Render the task card, run the agent (with a spinner), render the result.
+    """Render the task card, run the agent streaming events live, then the status.
 
     Returns the ``AgentResult``, or ``None`` if the run raised — in which case the
     error is shown as a styled line (a transient model/network error shouldn't
     crash the session).
     """
     console.print(task_panel(task))
+    renderer = StreamRenderer(show_thinking=show_thinking)
     try:
-        with console.status("[accent]thinking…[/accent]", spinner="dots"):
-            result = asyncio.run(agent.run(task))
+        if console.is_terminal:
+            with Live(console=console, refresh_per_second=12,
+                      vertical_overflow="visible") as live:
+                renderer.bind(live)
+                result = asyncio.run(agent.run(task, on_event=renderer.handle))
+        else:  # piped / captured: no live region, just accumulate then print once
+            result = asyncio.run(agent.run(task, on_event=renderer.handle))
+            console.print(renderer.render())
     except KeyboardInterrupt:
         console.print("[warn]interrupted[/warn]")
         return None
     except Exception as e:  # bad key, network, rate limit, bad endpoint, …
         console.print(f"[err]✗ {type(e).__name__}:[/err] {escape(str(e))}")
         return None
-    render_result(console, result, show_thinking=show_thinking)
+    console.print(renderer.final_status(result))
     return result
 
 

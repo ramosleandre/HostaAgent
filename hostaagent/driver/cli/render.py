@@ -41,19 +41,37 @@ def _preview(result: str) -> str:
     return ""
 
 
-def _tool_chip(tu: Any) -> Text:
-    args = "  ".join(_condense(v) for v in tu.args.values())
+def tool_chip(name: str, args: dict[str, Any], result: str | None,
+              is_error: bool = False, running: bool = False) -> Text:
+    """One condensed tool line: `⚙ name  arg  arg` + a `↳ result` (or `· running…`)."""
+    arg_str = "  ".join(_condense(v) for v in args.values())
     chip = Text()
     chip.append("⚙ ", style="tool")
-    chip.append(tu.name, style="tool")
-    if args:
+    chip.append(name, style="tool")
+    if arg_str:
         chip.append("  ")
-        chip.append(escape(args), style="tool.arg")
-    preview = _preview(tu.result)
-    if preview:
-        chip.append("\n  ↳ ", style="muted")
-        chip.append(escape(preview), style="err" if tu.is_error else "result")
+        chip.append(escape(arg_str), style="tool.arg")
+    if running and result is None:
+        chip.append("  · running…", style="muted")
+    else:
+        preview = _preview(result or "")
+        if preview:
+            chip.append("\n  ↳ ", style="muted")
+            chip.append(escape(preview), style="err" if is_error else "result")
     return chip
+
+
+def _tool_chip(tu: Any) -> Text:
+    return tool_chip(tu.name, tu.args, tu.result, tu.is_error)
+
+
+def status_line(result: Any) -> str:
+    """The `✓ done · N tools · M turns` footer as a themed markup string."""
+    mark, style = ("✓", "ok") if result.stop_reason == "done" else ("⚠", "warn")
+    n_tools, n_turns = len(result.tools_used), len(result.turns)
+    turn_word = "turn" if n_turns == 1 else "turns"
+    return (f"[{style}]{mark} {result.stop_reason}[/{style}] [muted]·[/muted] "
+            f"{n_tools} tools [muted]·[/muted] {n_turns} {turn_word}")
 
 
 def task_panel(task: str) -> Panel:
@@ -78,10 +96,4 @@ def render_result(console: Console, result: Any, show_thinking: bool = True) -> 
     if answer.strip():
         console.print(Text(answer, style="result"))
 
-    mark, style = ("✓", "ok") if result.stop_reason == "done" else ("⚠", "warn")
-    n_tools, n_turns = len(result.tools_used), len(result.turns)
-    turn_word = "turn" if n_turns == 1 else "turns"
-    console.print(
-        f"[{style}]{mark} {result.stop_reason}[/{style}] [muted]·[/muted] "
-        f"{n_tools} tools [muted]·[/muted] {n_turns} {turn_word}"
-    )
+    console.print(status_line(result))

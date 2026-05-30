@@ -14,6 +14,7 @@ from typing import Any
 from OpenHosta import config, tool_to_schema
 
 from .environment import Environment
+from .events import OnEvent, Token, ToolEnd, ToolStart, TurnEnd
 from .types import AgentResult, ToolUse, Turn, _ToolResult
 
 
@@ -21,6 +22,10 @@ def _tool_name(fn: Callable[..., Any]) -> str:
     """The name the model sees — the `@tool(name=...)` override, else `__name__`."""
     meta = getattr(fn, "__hosta_tool__", None)
     return meta.name if meta is not None else fn.__name__
+
+
+def _ignore(event: Any) -> None:  # default event sink when nobody is listening
+    return None
 
 
 class Agent:
@@ -44,19 +49,27 @@ class Agent:
             self.tools[_tool_name(fn)] = fn
 
     # ---- the ReAct loop ----
-    async def run(self, task: str) -> AgentResult:
+    async def run(self, task: str, on_event: OnEvent | None = None) -> AgentResult:
+        emit = on_event if on_event is not None else _ignore
+        on_token = (lambda t: emit(Token(t))) if on_event is not None else None
         msgs: list[dict[str, Any]] = [{"role": "user", "content": task}]
         turns: list[Turn] = []
         schemas = [tool_to_schema(fn) for fn in self.tools.values()]
         for _ in range(self.max_steps):
-            r = await self.model.respond(self.system(), msgs, tools=schemas)
+            r = await self.model.respond(self.system(), msgs, tools=schemas, on_token=on_token)
             if not r.tool_calls:
                 turns.append(Turn(r.text))
+                emit(TurnEnd(turns[-1]))
                 return AgentResult(r.text or "", turns, "done")
             msgs.append({"role": "assistant", "content": r.text, "tool_calls": r.raw_calls})
-            results = [await self._call(c) for c in r.tool_calls]
+            results = []
+            for c in r.tool_calls:
+                emit(ToolStart(c.name, c.args))
+                results.append(x := await self._call(c))
+                emit(ToolEnd(c.name, x.content, x.is_error))
             turns.append(Turn(r.text, [ToolUse(c.name, c.args, x.content, x.is_error)
                                        for c, x in zip(r.tool_calls, results, strict=True)]))
+            emit(TurnEnd(turns[-1]))
             for c, x in zip(r.tool_calls, results, strict=True):
                 msgs.append({"role": "tool", "tool_call_id": x.id,
                              "name": c.name, "content": x.content})

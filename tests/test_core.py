@@ -105,6 +105,40 @@ async def test_register_tools_and_use(tmp_path):
     assert r.turns[0].tools[0].result == "pong"
 
 
+async def test_run_emits_events(tmp_path):
+    from hostaagent.events import Token, ToolEnd, ToolStart, TurnEnd
+    (tmp_path / "x.txt").write_text("hi")
+    model = MockModel([
+        _tool_call_response("c1", "read", {"path": "x.txt"}, text="reading"),
+        ModelResponse(text="done", tool_calls=[], raw_calls=[], finish_reason="stop"),
+    ])
+    agent = Agent(env=LocalFS(str(tmp_path)), model=model)
+    events: list = []
+    r = await agent.run("read it", on_event=events.append)
+
+    kinds = [type(e).__name__ for e in events]
+    assert "Token" in kinds                       # text streamed token by token
+    assert kinds.count("ToolStart") == 1 and kinds.count("ToolEnd") == 1
+    assert kinds.count("TurnEnd") == 2            # two turns
+    starts = [e for e in events if isinstance(e, ToolStart)]
+    assert starts[0].name == "read" and starts[0].args == {"path": "x.txt"}
+    ends = [e for e in events if isinstance(e, ToolEnd)]
+    assert ends[0].name == "read"
+    # the tool starts before it ends; the turn ends after both
+    assert kinds.index("ToolStart") < kinds.index("ToolEnd") < kinds.index("TurnEnd")
+    # streamed tokens reconstruct the turn text
+    assert "".join(e.text for e in events if isinstance(e, Token)) == "readingdone"
+    assert r.stop_reason == "done"
+    assert isinstance(events[-1], TurnEnd)
+
+
+async def test_run_without_on_event_is_unchanged(tmp_path):
+    # No on_event -> no streaming, classic AgentResult (back-compat).
+    model = MockModel([ModelResponse(text="42", tool_calls=[], raw_calls=[], finish_reason="stop")])
+    r = await Agent(env=LocalFS(str(tmp_path)), model=model).run("q")
+    assert r.answer == "42" and r.tools_used == []
+
+
 async def test_custom_tool_name_is_resolvable(tmp_path):
     # A @tool(name="...") override must be the key the model calls by, otherwise
     # the loop would report "unknown tool".
