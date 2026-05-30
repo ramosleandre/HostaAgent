@@ -1,15 +1,21 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main]
   push:
-    branches-ignore: [main]   # run on every branch except main (no auto-push to main happens)
+    branches: [main]          # run on pushes to main
+  pull_request:
+    branches: [main]          # and on PRs targeting main
+  workflow_dispatch:           # and on demand
+
+concurrency:                   # cancel superseded runs on the same ref
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12"]
     steps:
@@ -17,7 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "${{ matrix.python }}"
-      - run: pip install -e ".[dev]"
+          cache: pip
+      - run: pip install -e ".[dev]"   # pulls openhosta@tool_calling from GitHub
       - run: ruff check .
       - run: mypy hostaagent
       - run: pytest -q

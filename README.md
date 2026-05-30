@@ -178,9 +178,19 @@ hostaagent/
 
 ## Contributing
 
-- CI (ruff + mypy + pytest, Python 3.10–3.12) runs on every PR.
-- Never push to `main`. Open a PR from a feature branch.
+- CI (ruff + mypy + pytest, Python 3.10–3.12) runs on pushes to `main` and on PRs
+  (`.github/workflows/ci.yml`).
 - Run `ruff check . && mypy hostaagent && pytest -q` before opening a PR.
+- Find dead code with `vulture hostaagent` (mind its false positives — public API
+  and framework callbacks).
+
+## Releasing
+
+`.github/workflows/publish.yml` publishes to PyPI on a GitHub Release. PyPI rejects
+git-URL dependencies, so before the first release: publish OpenHosta (with tool
+calling) to PyPI, change the `openhosta @ git+…` dependency in `pyproject.toml` to a
+version pin (e.g. `openhosta>=4.4`), and configure a PyPI Trusted Publisher for this
+repo. Until then, install [from source](#from-source).
 
 ## License
 

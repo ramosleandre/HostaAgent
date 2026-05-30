@@ -1,0 +1,30 @@
+name: Publish to PyPI
+
+# Publishes on a GitHub Release. PREREQUISITES (PyPI rejects git-URL deps):
+#   1. OpenHosta (with tool calling) must be on PyPI.
+#   2. In pyproject.toml, change the dependency
+#        "openhosta @ git+https://github.com/hand-e-fr/OpenHosta.git@tool_calling"
+#      to a version pin, e.g.  "openhosta>=4.4"
+#      and drop the now-unneeded [tool.hatch.metadata] allow-direct-references.
+#   3. Configure a Trusted Publisher on PyPI for this repo + this workflow
+#      (PyPI -> project -> Publishing), or set a PyPI token and use it below.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write          # OIDC for PyPI Trusted Publishing (no token needed)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build    # sdist + wheel into dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
