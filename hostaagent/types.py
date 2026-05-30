@@ -27,6 +27,7 @@ class AgentResult:
     answer: Any
     turns: list[Turn] = field(default_factory=list)
     stop_reason: str = "done"  # "done" | "max_steps"
+    messages: list[dict[str, Any]] = field(default_factory=list)  # full convo, to continue it
 
     def __str__(self) -> str:
         return str(self.answer)

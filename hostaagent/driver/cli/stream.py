@@ -12,6 +12,7 @@ from typing import Any
 from rich.console import Group
 from rich.live import Live
 from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.text import Text
 
 from ...events import Event, Token, ToolEnd, ToolStart, TurnEnd
@@ -69,6 +70,10 @@ class StreamRenderer:
             items.append(Text(self._answer, style="result"))
         elif self._reasoning.strip() or self._tools:
             items.append(self._step_card())  # in-progress
+        elif not items:
+            # nothing has streamed yet — show a live "thinking…" so the wait is visible
+            # (matters for non-streaming models, which emit nothing until the answer)
+            items.append(Spinner("dots", text=Text(" thinking…", style="accent")))
         return Group(*items)
 
     def final_status(self, result: Any) -> str:

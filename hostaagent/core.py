@@ -49,10 +49,11 @@ class Agent:
             self.tools[_tool_name(fn)] = fn
 
     # ---- the ReAct loop ----
-    async def run(self, task: str, on_event: OnEvent | None = None) -> AgentResult:
+    async def run(self, task: str, on_event: OnEvent | None = None,
+                  history: list[dict[str, Any]] | None = None) -> AgentResult:
         emit = on_event if on_event is not None else _ignore
         on_token = (lambda t: emit(Token(t))) if on_event is not None else None
-        msgs: list[dict[str, Any]] = [{"role": "user", "content": task}]
+        msgs: list[dict[str, Any]] = [*(history or []), {"role": "user", "content": task}]
         turns: list[Turn] = []
         schemas = [tool_to_schema(fn) for fn in self.tools.values()]
         for _ in range(self.max_steps):
@@ -60,7 +61,8 @@ class Agent:
             if not r.tool_calls:
                 turns.append(Turn(r.text))
                 emit(TurnEnd(turns[-1]))
-                return AgentResult(r.text or "", turns, "done")
+                msgs.append({"role": "assistant", "content": r.text})
+                return AgentResult(r.text or "", turns, "done", msgs)
             msgs.append({"role": "assistant", "content": r.text, "tool_calls": r.raw_calls})
             results = []
             for c in r.tool_calls:
@@ -73,7 +75,7 @@ class Agent:
             for c, x in zip(r.tool_calls, results, strict=True):
                 msgs.append({"role": "tool", "tool_call_id": x.id,
                              "name": c.name, "content": x.content})
-        return AgentResult("(max steps reached)", turns, "max_steps")
+        return AgentResult("(max steps reached)", turns, "max_steps", msgs)
 
     async def _call(self, c: Any) -> _ToolResult:
         fn = self.tools.get(c.name)

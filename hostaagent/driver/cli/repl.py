@@ -29,7 +29,7 @@ SLASH_COMMANDS: dict[str, str] = {
     "/model": "switch model for the session (/model <name>)",
     "/tools": "list available tools",
     "/think": "toggle showing the agent's reasoning",
-    "/clear": "clear the screen",
+    "/clear": "clear the screen and forget the conversation",
     "/help": "show this help",
     "/exit": "quit (or Ctrl-D)",
 }
@@ -60,12 +60,13 @@ def _help(console: Console) -> None:
         console.print(f"  [tool]{cmd:<8}[/tool] [muted]{desc}[/muted]")
 
 
-def run_one(console: Console, agent: Agent, task: str, show_thinking: bool = True) -> Any:
+def run_one(console: Console, agent: Agent, task: str, show_thinking: bool = True,
+            history: list[dict[str, Any]] | None = None) -> Any:
     """Render the task card, run the agent streaming events live, then the status.
 
-    Returns the ``AgentResult``, or ``None`` if the run raised — in which case the
-    error is shown as a styled line (a transient model/network error shouldn't
-    crash the session).
+    `history` carries the prior conversation so the agent remembers earlier turns.
+    Returns the ``AgentResult`` (whose ``.messages`` is the conversation to carry
+    forward), or ``None`` if the run raised — shown as a styled line, no crash.
     """
     console.print(task_panel(task))
     renderer = StreamRenderer(show_thinking=show_thinking)
@@ -74,9 +75,9 @@ def run_one(console: Console, agent: Agent, task: str, show_thinking: bool = Tru
             with Live(console=console, refresh_per_second=12,
                       vertical_overflow="visible") as live:
                 renderer.bind(live)
-                result = asyncio.run(agent.run(task, on_event=renderer.handle))
+                result = asyncio.run(agent.run(task, on_event=renderer.handle, history=history))
         else:  # piped / captured: no live region, just accumulate then print once
-            result = asyncio.run(agent.run(task, on_event=renderer.handle))
+            result = asyncio.run(agent.run(task, on_event=renderer.handle, history=history))
             console.print(renderer.render())
     except KeyboardInterrupt:
         console.print("[warn]interrupted[/warn]")
@@ -102,6 +103,7 @@ def run_repl(console: Console, agent: Agent, cfg: dict[str, Any]) -> None:
         )
     stats = _Stats()
     show_thinking = True
+    history: list[dict[str, Any]] = []  # the running conversation (multi-turn memory)
 
     while True:
         try:
@@ -132,13 +134,15 @@ def run_repl(console: Console, agent: Agent, cfg: dict[str, Any]) -> None:
                 else:
                     console.print(f"[muted]current model: {cfg['model']['name']}[/muted]")
             elif cmd == "clear":
+                history = []  # forget the conversation
                 console.clear()
             else:
                 console.print(f"[warn]unknown command: /{cmd}[/warn] [muted](try /help)[/muted]")
             continue
 
-        result = run_one(console, agent, line, show_thinking)
+        result = run_one(console, agent, line, show_thinking, history=history)
         if result is not None:
+            history = result.messages  # carry the conversation into the next turn
             stats.tasks += 1
             stats.tools += len(result.tools_used)
             stats.turns += len(result.turns)

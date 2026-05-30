@@ -132,6 +132,27 @@ async def test_run_emits_events(tmp_path):
     assert isinstance(events[-1], TurnEnd)
 
 
+async def test_run_carries_conversation_history(tmp_path):
+    # turn 1: the result exposes the full conversation to continue it
+    agent = Agent(env=LocalFS(str(tmp_path)), model=MockModel([
+        ModelResponse(text="noted", tool_calls=[], raw_calls=[], finish_reason="stop"),
+    ]))
+    r1 = await agent.run("my name is Léandre")
+    assert r1.messages[0] == {"role": "user", "content": "my name is Léandre"}
+    assert r1.messages[-1] == {"role": "assistant", "content": "noted"}
+
+    # turn 2 with that history: the model now SEES the earlier turn
+    m2 = MockModel([ModelResponse(text="you are Léandre", tool_calls=[], raw_calls=[],
+                                  finish_reason="stop")])
+    agent.model = m2
+    r2 = await agent.run("what is my name?", history=r1.messages)
+    sent = m2.calls[0]["messages"]
+    assert {"role": "user", "content": "my name is Léandre"} in sent
+    assert {"role": "assistant", "content": "noted"} in sent
+    assert sent[-1] == {"role": "user", "content": "what is my name?"}
+    assert len(r2.messages) == 4  # user, assistant, user, assistant
+
+
 async def test_run_without_on_event_is_unchanged(tmp_path):
     # No on_event -> no streaming, classic AgentResult (back-compat).
     model = MockModel([ModelResponse(text="42", tool_calls=[], raw_calls=[], finish_reason="stop")])
