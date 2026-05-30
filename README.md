@@ -92,9 +92,11 @@ Ready-to-run agents in [`examples/agents/`](examples/agents/):
 | [`sql.py`](examples/agents/sql.py) | schema-aware, read-only SQL analyst over a SQLite database |
 | [`git.py`](examples/agents/git.py) | reviews your local `git diff` and suggests fixes |
 | [`research.py`](examples/agents/research.py) | fetches URLs and synthesizes a cited answer (stdlib only) |
+| [`orchestrator.py`](examples/agents/orchestrator.py) | routes to specialist sub-agents — multi-agent, no new framework code |
 
-Plus [`custom_env.py`](examples/custom_env.py) (a custom `Environment`) and
-[`daemon_webhook.py`](examples/daemon_webhook.py) (a `DaemonDriver`).
+Plus [`custom_env.py`](examples/custom_env.py) (a custom `Environment`),
+[`daemon_webhook.py`](examples/daemon_webhook.py) (a `DaemonDriver`), and
+[`tools/subagent.py`](examples/tools/subagent.py) (wrap any agent as a tool).
 
 **Register an agent once, then run it by name:**
 
@@ -125,9 +127,19 @@ hosta use sql                  # set the default agent for plain `hosta`
 hosta config                   # setup wizard  (· config show  · config set <k> <v>)
 ```
 
-Provider support today (anything OpenAI-compatible): **OpenAI**, **Gemini** (its
-OpenAI-compatible endpoint), and **local** servers (Ollama, vLLM, LM Studio).
-Native **Anthropic** is on the roadmap. The model must support tool calling.
+### Providers
+
+Anything OpenAI-compatible works out of the box (the model must support tool calling):
+
+| Provider | How |
+|---|---|
+| **OpenAI** | pick *OpenAI* in the wizard |
+| **Gemini** | pick *Gemini* (its OpenAI-compatible endpoint) |
+| **Local** (Ollama, vLLM, LM Studio) | pick *Local* |
+| **Anthropic, Bedrock, + 100 more** | run a [LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy) (`litellm --model claude-3-5-sonnet-20241022`) and pick *LiteLLM proxy* — it speaks OpenAI (tools + streaming) and routes to any provider |
+
+A native (no-proxy) Anthropic / embedded-LiteLLM model is a candidate addition to
+OpenHosta — see the roadmap.
 
 Configuration is cached in `~/.hostaagent/config.toml` (a project can override it
 with `./.hostaagent.toml`) — the only config file in the project.

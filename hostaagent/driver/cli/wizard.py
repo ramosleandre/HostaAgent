@@ -18,6 +18,7 @@ from .theme import VIOLET, WIZARD_STYLE
 PRESETS: dict[str, tuple[str, str]] = {
     "OpenAI": ("https://api.openai.com/v1", "gpt-4o"),
     "Gemini": ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini-2.0-flash"),
+    "LiteLLM proxy": ("http://localhost:4000", "claude-3-5-sonnet-latest"),
     "Local (Ollama / vLLM)": ("http://localhost:11434/v1", "qwen2.5"),
     "Other": ("", ""),
 }

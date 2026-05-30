@@ -1,15 +1,13 @@
-"""Rendering the agent trace in violet.
+"""Violet rendering building blocks, shared by the live `StreamRenderer`.
 
-Layout per run:  [step cards: reasoning + condensed tool chips] → the answer →
-the status line. Tool args/results are condensed (basenames, truncation) and
-markup-escaped — never the raw absolute paths or indigestible blobs.
+Tool args/results are condensed (basenames, truncation) and markup-escaped —
+never the raw absolute paths or indigestible blobs.
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console, Group
 from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
@@ -61,10 +59,6 @@ def tool_chip(name: str, args: dict[str, Any], result: str | None,
     return chip
 
 
-def _tool_chip(tu: Any) -> Text:
-    return tool_chip(tu.name, tu.args, tu.result, tu.is_error)
-
-
 def status_line(result: Any) -> str:
     """The `✓ done · N tools · M turns` footer as a themed markup string."""
     mark, style = ("✓", "ok") if result.stop_reason == "done" else ("⚠", "warn")
@@ -77,23 +71,3 @@ def status_line(result: Any) -> str:
 def task_panel(task: str) -> Panel:
     return Panel(Text(task, style="accent"), title="[primary]task[/primary]",
                  border_style="primary", expand=False, padding=(0, 1))
-
-
-def render_result(console: Console, result: Any, show_thinking: bool = True) -> None:
-    """Render the trace, then the answer, then the status line (in that order)."""
-    for turn in result.turns:
-        if not turn.tools:
-            continue  # the final answer turn is rendered below, not as a step
-        body: list[Any] = []
-        if show_thinking and turn.text and turn.text.strip():
-            body.append(Text(f"▸ {turn.text.strip()}", style="muted"))
-        body.extend(_tool_chip(tu) for tu in turn.tools)
-        names = " · ".join(dict.fromkeys(t.name for t in turn.tools))
-        console.print(Panel(Group(*body), title=f"[muted]{escape(names)}[/muted]",
-                            border_style="muted", expand=False, padding=(0, 1)))
-
-    answer = "" if result.answer is None else str(result.answer)
-    if answer.strip():
-        console.print(Text(answer, style="result"))
-
-    console.print(status_line(result))
