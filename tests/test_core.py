@@ -1,4 +1,6 @@
 """The ReAct loop, driven entirely by a scripted MockModel."""
+from dataclasses import dataclass
+
 from mockmodel import MockModel
 from OpenHosta import ModelResponse, ToolCall
 
@@ -200,3 +202,76 @@ async def test_tool_message_includes_name(tmp_path):
     tool_msgs = [m for m in model.calls[1]["messages"] if m.get("role") == "tool"]
     assert tool_msgs and tool_msgs[0]["name"] == "read"
     assert tool_msgs[0]["tool_call_id"] == "c1"
+
+
+# ---- typed output (output_type) ---------------------------------------------
+# The formatting pass talks to OpenHosta directly (not via MockModel), so we test
+# it through the documented `_format` override seam — no live model, no API key.
+@dataclass
+class _Report:
+    title: str
+    score: int
+
+
+class _TypedAgent(Agent):
+    """Stubs the formatting pass: records what it received, returns a fixed object."""
+    formatted: object = None
+
+    async def _format(self, text):
+        self.formatted = text
+        return _Report(title="Q3", score=88)
+
+
+async def test_output_type_defaults_to_str_unchanged(tmp_path):
+    # The default output_type=str path never calls _format: answer is the raw text.
+    model = MockModel([ModelResponse(text="plain", tool_calls=[], raw_calls=[],
+                                     finish_reason="stop")])
+    r = await Agent(env=LocalFS(str(tmp_path)), model=model).run("q")
+    assert r.answer == "plain" and isinstance(r.answer, str)
+
+
+async def test_typed_output_formats_final_answer(tmp_path):
+    model = MockModel([ModelResponse(text="the score is 88", tool_calls=[], raw_calls=[],
+                                     finish_reason="stop")])
+    agent = _TypedAgent(env=LocalFS(str(tmp_path)), model=model, output_type=_Report)
+    r = await agent.run("summarize")
+    assert isinstance(r.answer, _Report) and r.answer.score == 88
+    assert agent.formatted == "the score is 88"   # _format got the final text only
+    assert r.stop_reason == "done"
+
+
+async def test_typed_output_skipped_on_empty_text(tmp_path):
+    # Empty final text would make the formatter fabricate a value — so we skip it.
+    model = MockModel([ModelResponse(text="", tool_calls=[], raw_calls=[],
+                                     finish_reason="stop")])
+    agent = _TypedAgent(env=LocalFS(str(tmp_path)), model=model, output_type=_Report)
+    r = await agent.run("q")
+    assert r.answer == "" and agent.formatted is None  # _format never called
+
+
+async def test_typed_output_skipped_on_max_steps(tmp_path):
+    # max_steps yields the str sentinel even for a typed agent (answer is str, not _Report).
+    (tmp_path / "x.txt").write_text("hi")
+    looping = [_tool_call_response(f"c{i}", "read", {"path": "x.txt"}) for i in range(10)]
+    agent = _TypedAgent(env=LocalFS(str(tmp_path)), model=MockModel(looping),
+                        output_type=_Report)
+    agent.max_steps = 2
+    r = await agent.run("loop")
+    assert r.stop_reason == "max_steps"
+    assert r.answer == "(max steps reached)" and agent.formatted is None
+
+
+def test_iterator_output_type_is_rejected(tmp_path):
+    from collections.abc import AsyncIterator, Generator, Iterable, Iterator
+
+    import pytest
+
+    for bad in (Iterator[int], Iterable[str], Generator[int, None, None], AsyncIterator[int]):
+        with pytest.raises(TypeError, match="streaming/iterator"):
+            Agent(env=LocalFS(str(tmp_path)), output_type=bad)
+
+
+def test_concrete_container_output_type_is_allowed(tmp_path):
+    # list/tuple/dict are NOT iterator types — they must be accepted.
+    for ok in (list[str], tuple[int, ...], dict[str, int]):
+        Agent(env=LocalFS(str(tmp_path)), output_type=ok)  # no raise
