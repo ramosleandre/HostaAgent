@@ -57,6 +57,21 @@ def test_render_condenses_tool_and_survives_markup(tmp_path, capsys):
     assert "/Users" not in out  # no absolute paths leaked into the trace
 
 
+def test_debug_dumps_system_prompt_and_raw_messages(tmp_path):
+    # --debug (via run_one(debug=True)): system prompt before, traced tool I/O, raw
+    # messages after — all additive, the run still returns its result.
+    model = _loop_with_tool({"path": "x.txt"}, "the answer")
+    agent = Agent(env=LocalFS(str(tmp_path)), model=model)
+    console = _console()
+    result = run_one(console, agent, "read x.txt", debug=True)
+    out = console.export_text()
+    assert result is not None
+    assert "system prompt" in out                # preamble panel
+    assert agent.persona in out                  # the actual system prompt content
+    assert "raw messages" in out                 # postamble panel
+    assert "→ read" in out                       # full tool I/O was traced
+
+
 def test_violet_theme_styles_are_valid():
     from rich.style import Style
     console = Console(theme=VIOLET)

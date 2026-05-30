@@ -11,8 +11,10 @@ _os.environ.setdefault("OPENHOSTA_SILENCE_ENV_WARNING", "1")
 from OpenHosta import tool  # re-export — users never import OpenHosta directly
 
 from .core import Agent
+from .debug import with_trace
 from .driver import CliDriver, DaemonDriver, Driver
 from .environment import Environment, LocalFS
+from .testing import MockModel
 from .types import AgentResult, ToolUse, Turn
 
 __version__ = "0.1.0"
@@ -28,5 +30,7 @@ __all__ = [
     "CliDriver",
     "DaemonDriver",
     "tool",
+    "MockModel",
+    "with_trace",
     "__version__",
 ]

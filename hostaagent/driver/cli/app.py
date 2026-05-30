@@ -211,6 +211,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("task", nargs="?", help="task to run (omit for an interactive session)")
     parser.add_argument("-a", "--agent", help="agent to run: a registered name or a Python file")
     parser.add_argument("-m", "--model", help="override the model name")
+    parser.add_argument("--debug", action="store_true",
+                        help="trace full tool I/O, the system prompt, and raw messages")
     args = parser.parse_args(raw)
 
     cfg = load_config() or run_config_wizard()  # first run launches the wizard
@@ -234,10 +236,10 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     if args.task:
-        if run_one(console, agent, args.task) is None:
+        if run_one(console, agent, args.task, debug=args.debug) is None:
             sys.exit(1)  # the run raised (already shown as a styled error)
     else:
-        run_repl(console, agent, cfg)
+        run_repl(console, agent, cfg, debug=args.debug)
 
 
 if __name__ == "__main__":

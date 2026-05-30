@@ -21,6 +21,7 @@ from rich.panel import Panel
 
 from ...config import build_model
 from ...core import Agent
+from ...events import OnEvent
 from .render import task_panel
 from .stream import StreamRenderer
 from .theme import PROMPT_STYLE
@@ -61,23 +62,29 @@ def _help(console: Console) -> None:
 
 
 def run_one(console: Console, agent: Agent, task: str, show_thinking: bool = True,
-            history: list[dict[str, Any]] | None = None) -> Any:
+            history: list[dict[str, Any]] | None = None, debug: bool = False) -> Any:
     """Render the task card, run the agent streaming events live, then the status.
 
     `history` carries the prior conversation so the agent remembers earlier turns.
+    `debug` dumps the system prompt + raw messages and traces full tool I/O.
     Returns the ``AgentResult`` (whose ``.messages`` is the conversation to carry
     forward), or ``None`` if the run raised — shown as a styled line, no crash.
     """
     console.print(task_panel(task))
     renderer = StreamRenderer(show_thinking=show_thinking)
+    on_event: OnEvent = renderer.handle
+    if debug:
+        from .debug import print_raw_messages, print_system_prompt, trace_handler
+        print_system_prompt(console, agent)
+        on_event = trace_handler(console, renderer.handle)
     try:
-        if console.is_terminal:
+        if console.is_terminal and not debug:
             with Live(console=console, refresh_per_second=12,
                       vertical_overflow="visible") as live:
                 renderer.bind(live)
-                result = asyncio.run(agent.run(task, on_event=renderer.handle, history=history))
-        else:  # piped / captured: no live region, just accumulate then print once
-            result = asyncio.run(agent.run(task, on_event=renderer.handle, history=history))
+                result = asyncio.run(agent.run(task, on_event=on_event, history=history))
+        else:  # piped/captured OR --debug: no live region (it would fight the trace lines)
+            result = asyncio.run(agent.run(task, on_event=on_event, history=history))
             console.print(renderer.render())
     except KeyboardInterrupt:
         console.print("[warn]interrupted[/warn]")
@@ -86,10 +93,12 @@ def run_one(console: Console, agent: Agent, task: str, show_thinking: bool = Tru
         console.print(f"[err]✗ {type(e).__name__}:[/err] {escape(str(e))}")
         return None
     console.print(renderer.final_status(result))
+    if debug:
+        print_raw_messages(console, result.messages)
     return result
 
 
-def run_repl(console: Console, agent: Agent, cfg: dict[str, Any]) -> None:
+def run_repl(console: Console, agent: Agent, cfg: dict[str, Any], debug: bool = False) -> None:
     console.print(Panel("[accent]Interactive session[/accent] — type a task, or [tool]/help[/tool]",
                         title="[primary]HostaAgent[/primary]", border_style="primary",
                         expand=False))
@@ -140,7 +149,7 @@ def run_repl(console: Console, agent: Agent, cfg: dict[str, Any]) -> None:
                 console.print(f"[warn]unknown command: /{cmd}[/warn] [muted](try /help)[/muted]")
             continue
 
-        result = run_one(console, agent, line, show_thinking, history=history)
+        result = run_one(console, agent, line, show_thinking, history=history, debug=debug)
         if result is not None:
             history = result.messages  # carry the conversation into the next turn
             stats.tasks += 1
