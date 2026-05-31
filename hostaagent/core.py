@@ -16,6 +16,7 @@ from OpenHosta import config, tool_to_schema
 
 from .environment import Environment
 from .events import OnEvent, Token, ToolEnd, ToolStart, TurnEnd
+from .permissions import Principal, visible
 from .types import AgentResult, ToolUse, Turn, _ToolResult
 
 _ITERATOR_ORIGINS = (
@@ -57,7 +58,7 @@ class Agent:
     max_steps: int = 25
 
     def __init__(self, *, env: Environment, model: Any = None,
-                 output_type: type = str) -> None:
+                 output_type: type = str, principal: Principal | None = None) -> None:
         if output_type is not str and _is_iterator_type(output_type):
             raise TypeError(
                 f"output_type={output_type!r} is a streaming/iterator type; typed "
@@ -66,8 +67,12 @@ class Agent:
         self.env = env
         self.model = model if model is not None else config.DefaultModel
         self.output_type = output_type
+        self.principal = principal
         self.tools: dict[str, Callable[..., Any]] = {_tool_name(fn): fn for fn in env.tools()}
         self.register_tools()
+        # Identity comes from the caller (driver/auth), not the body: tools the principal
+        # can't see are dropped here, so the LLM is never even offered them.
+        self.tools = {n: fn for n, fn in self.tools.items() if visible(fn, principal)}
 
     # ---- extension points ----
     def register_tools(self) -> None: ...  # subclass: self.use(my_tool)

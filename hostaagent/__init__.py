@@ -13,7 +13,8 @@ from OpenHosta import tool  # re-export — users never import OpenHosta directl
 from .core import Agent
 from .debug import with_trace
 from .driver import CliDriver, DaemonDriver, Driver
-from .environment import Environment, LocalFS
+from .environment import Environment, HttpEnv, LocalFS, MultiEnv
+from .permissions import Principal
 from .testing import MockModel
 from .types import AgentResult, ToolUse, Turn
 
@@ -26,10 +27,13 @@ __all__ = [
     "ToolUse",
     "Environment",
     "LocalFS",
+    "MultiEnv",
+    "HttpEnv",
     "Driver",
     "CliDriver",
     "DaemonDriver",
     "tool",
+    "Principal",
     "MockModel",
     "with_trace",
     "__version__",
